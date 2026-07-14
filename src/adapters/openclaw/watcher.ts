@@ -9,6 +9,7 @@ import { fileSha, uuid, nowIso } from "../../util.ts";
 import { OrganAudit } from "./organ-audit.ts";
 import { dumpSqliteToMarkdown } from "./sqlite-dump.ts";
 import { globToRegExp } from "../../core/classifier.ts";
+import type { Logger } from "../../onboard/logger.ts";
 import type { Config, Target, OrganEvent, Op } from "../../types.ts";
 
 export class OpenClawWatcher {
@@ -19,10 +20,12 @@ export class OpenClawWatcher {
   private watcher: import("chokidar").FSWatcher | null = null;
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private ignoreGlobs: RegExp[];
+  private log: Logger | null;
 
-  constructor(cfg: Config, target: Target) {
+  constructor(cfg: Config, target: Target, log: Logger | null = null) {
     this.cfg = cfg;
     this.target = target;
+    this.log = log;
     this.inbox = new Inbox(cfg.ledger_home);
     this.audit = new OrganAudit(target.home);
     // Authoritative ignore filter: config globs matched against the RELATIVE,
@@ -53,7 +56,10 @@ export class OpenClawWatcher {
       // NOT crash the single daemon — log to audit and keep watching everything else.
       .on("error", (err: unknown) => {
         const e = err as NodeJS.ErrnoException;
-        this.audit.skip(String(e.path ?? "?"), `watch-error: ${e.code ?? ""} ${e.message ?? e}`);
+        const rel = String(e.path ?? "?");
+        this.audit.skip(rel, `watch-error: ${e.code ?? ""} ${e.message ?? e}`);
+        // run log (path + code only — never file contents/secrets)
+        this.log?.warn("watcher", `${e.code ?? "watch-error"} ${rel} — skipped, continuing`);
       });
   }
 

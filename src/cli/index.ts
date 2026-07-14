@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 // organledger CLI. Minimal argv parsing (no heavy deps).
-//   daemon | once | report [--date] | rollback --change|--session|--before [--confirm]
-//   approve <id> | reject <id> | verify-ledger | status
-import { loadConfig, ensureDirs, defaultLedgerHome, paths } from "../util.ts";
+//   init | doctor | paths | reset | uninstall
+//   daemon | once | report | rollback | approve | reject | verify-ledger | status
+import { loadConfigSafe, ensureDirs, defaultLedgerHome, paths, isInitialized } from "../util.ts";
 import { Daemon, liveDaemonPid } from "../core/daemon.ts";
 import { OpenClawWatcher } from "../adapters/openclaw/watcher.ts";
 import { buildReport } from "./report.ts";
 import { rollback } from "./rollback.ts";
 import { approve, reject } from "./approve.ts";
 import { Ledger } from "../core/ledger.ts";
+import { runInit } from "../onboard/init.ts";
+import { runDoctor } from "../onboard/doctor.ts";
+import { printPaths, runReset, runUninstall } from "../onboard/lifecycle.ts";
+import { installAutostart } from "../onboard/autostart.ts";
 import type { Config } from "../types.ts";
 
 function parseFlags(argv: string[]): Record<string, string | boolean> {
@@ -29,10 +33,60 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
   return f;
 }
 
+const S = (v: string | boolean | undefined): string | undefined =>
+  typeof v === "string" ? v : undefined;
+
 async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
-  const cfg: Config = loadConfig((flags["home"] as string) || defaultLedgerHome());
+  const home = S(flags["home"]) || defaultLedgerHome();
+
+  // ---- commands that do NOT require an existing config ----
+  switch (cmd) {
+    case "init": {
+      const res = runInit({
+        home,
+        yes: !!flags["yes"],
+        openclaw: S(flags["openclaw"]),
+        hermes: S(flags["hermes"]),
+        noSnapshot: !!flags["no-snapshot"],
+      });
+      res.lines.forEach((l) => console.log(l));
+      if (flags["yes"] && !flags["no-autostart"]) {
+        // in --yes mode, do not surprise-install autostart; only if explicitly asked
+      }
+      if (flags["autostart"]) installAutostart(S(flags["home"])).forEach((l) => console.log("  " + l));
+      return;
+    }
+    case "doctor": {
+      const r = runDoctor(home);
+      r.lines.forEach((l) => console.log(l));
+      process.exit(r.healthy ? 0 : 1);
+    }
+    case "paths":
+      printPaths(home).forEach((l) => console.log(l));
+      return;
+    case "reset":
+      runReset(home, { all: !!flags["all"], confirm: !!flags["confirm"] }).forEach((l) => console.log(l));
+      return;
+    case "uninstall":
+      runUninstall(home).forEach((l) => console.log(l));
+      return;
+    case "autostart":
+      installAutostart(S(flags["home"])).forEach((l) => console.log(l));
+      return;
+    case undefined:
+    case "help":
+    case "--help":
+      return printHelp(home);
+  }
+
+  // ---- commands that require a config ----
+  const cfg = loadConfigSafe(home);
+  if (!cfg) {
+    console.error("未初始化 —— 先运行 'organledger init'  (not initialized — run 'organledger init')");
+    process.exit(1);
+  }
   ensureDirs(cfg.ledger_home);
 
   switch (cmd) {
@@ -41,7 +95,7 @@ async function main(): Promise<void> {
     case "once":
       return runOnce(cfg);
     case "report": {
-      const { outPath, md } = buildReport(cfg, (flags["date"] as string) || "today");
+      const { outPath, md } = buildReport(cfg, S(flags["date"]) || "today");
       console.log(md);
       console.log(`\n[written] ${outPath}`);
       return;
@@ -49,9 +103,9 @@ async function main(): Promise<void> {
     case "rollback": {
       if (guardSingleWriter(cfg)) return;
       const out = rollback(cfg, {
-        change: flags["change"] as string | undefined,
-        session: flags["session"] as string | undefined,
-        before: flags["before"] as string | undefined,
+        change: S(flags["change"]),
+        session: S(flags["session"]),
+        before: S(flags["before"]),
         confirm: !!flags["confirm"],
       });
       out.forEach((l) => console.log(l));
@@ -80,20 +134,34 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log(
-        [
-          "organledger — Agent organ governance (Phase 1)",
-          "",
-          "  daemon                     start consumer + OpenClaw watcher (single instance)",
-          "  once                       drain inbox + flush commits, then exit",
-          "  report [--date today|YYYY-MM-DD]",
-          "  rollback --change <id> | --session <id> | --before <ts> [--confirm]",
-          "  approve <change_id> | reject <change_id>",
-          "  verify-ledger              validate hash chain",
-          "  status                     quick summary",
-        ].join("\n")
-      );
+      printHelp(home);
   }
+}
+
+function printHelp(home: string): void {
+  const uninit = !isInitialized(home);
+  const lines = [
+    "organledger — Agent organ governance (Phase 1.5)",
+    "",
+  ];
+  if (uninit) lines.push("未初始化 —— 先运行 'organledger init'   (not initialized — run 'organledger init')", "");
+  lines.push(
+    "  init [--yes] [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--autostart]",
+    "  doctor                     health report (env/paths/config/audit/runtime/capacity)",
+    "  paths                      show where every artifact lives",
+    "  reset [--keep-audit(default) | --all --confirm]",
+    "  uninstall                  stop guidance + remove autostart (keeps your data)",
+    "  autostart                  install login autostart (Windows Scheduled Task)",
+    "",
+    "  daemon                     start consumer + OpenClaw watcher (single instance)",
+    "  once                       drain inbox + flush commits, then exit",
+    "  report [--date today|YYYY-MM-DD]",
+    "  rollback --change <id> | --session <id> | --before <ts> [--confirm]",
+    "  approve <change_id> | reject <change_id>",
+    "  verify-ledger              validate hash chain",
+    "  status                     quick summary"
+  );
+  lines.forEach((l) => console.log(l));
 }
 
 // enforce the single-writer invariant for ledger/git-mutating commands.
@@ -105,7 +173,7 @@ function guardSingleWriter(cfg: Config): boolean {
         `Stop it before approve/reject/rollback (Ctrl-C the daemon), then retry.\n` +
         `This prevents concurrent writers from corrupting the hash chain.`
     );
-    return true; // blocked
+    return true;
   }
   return false;
 }
@@ -116,21 +184,21 @@ async function runDaemon(cfg: Config): Promise<void> {
     console.error("[organledger] another daemon holds the lock — exiting (single committer).");
     process.exit(1);
   }
-  console.log(`[organledger] daemon up. ledger_home=${cfg.ledger_home}`);
+  d.log.info("daemon", `up. ledger_home=${cfg.ledger_home} targets=${cfg.targets.map((t) => t.system).join(",")}`);
 
   const watchers: OpenClawWatcher[] = [];
   for (const target of cfg.targets) {
     if (target.system === "openclaw" && target.git) {
-      const w = new OpenClawWatcher(cfg, target);
+      const w = new OpenClawWatcher(cfg, target, d.log);
       w.start();
       watchers.push(w);
-      console.log(`[organledger] watching ${target.home} [${target.watch.join(", ")}]`);
+      d.log.info("watcher", `watching ${target.home} [${target.watch.join(", ")}]`);
     }
   }
   d.start(200);
 
   const shutdown = async () => {
-    console.log("\n[organledger] shutting down…");
+    d.log.info("daemon", "shutting down…");
     for (const w of watchers) await w.stop();
     await d.stop();
     process.exit(0);
@@ -148,7 +216,7 @@ async function runOnce(cfg: Config): Promise<void> {
   const n = await d.drainOnce();
   await d.committer.flushNow();
   d.releaseLock();
-  console.log(`[organledger] processed ${n} event(s).`);
+  d.log.info("once", `processed ${n} event(s).`);
 }
 
 main().catch((e) => {

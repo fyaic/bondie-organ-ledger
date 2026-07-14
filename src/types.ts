@@ -79,4 +79,9 @@ export interface Config {
   debounce_ms: number;
   session_squash_ms: number;
   gate: { default: "observe"; held_on: string[] };
+  // v2 (optional; consumed with defaults so v1 config still loads)
+  layout_version?: number;
+  log_level?: "debug" | "info" | "warn" | "error";
+  log_retention_days?: number;
+  processed_retention_days?: number;
 }

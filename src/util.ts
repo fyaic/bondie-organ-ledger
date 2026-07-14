@@ -61,31 +61,72 @@ export function defaultLedgerHome(): string {
   return process.env.ORGANLEDGER_HOME || path.join(os.homedir(), ".organledger");
 }
 
-// ---- paths under ledger_home ----
+// ---- paths v2 (layout 2): config / audit / state / logs / cache partitions ----
+// audit-class paths (tickets/held/reports/config) are UNCHANGED from v1 to keep
+// the hash chain byte-identical. state/logs/cache are the new partitions.
 export function paths(ledgerHome: string) {
   const h = expandHome(ledgerHome);
   return {
     home: h,
+    // config
     config: path.join(h, "config.json"),
-    inbox: path.join(h, "events", "inbox.jsonl"),
-    processed: path.join(h, "events", "processed"),
+    version: path.join(h, "VERSION"),
+    // audit (source of truth — unchanged locations)
     tickets: path.join(h, "ledger", "tickets.jsonl"),
     held: path.join(h, "ledger", "held"),
     reports: path.join(h, "reports", "audit"),
-    lock: path.join(h, "daemon.lock"),
+    // state (mutable; clearable when stopped) — moved under state/
+    state: path.join(h, "state"),
+    inbox: path.join(h, "state", "events", "inbox.jsonl"),
+    processed: path.join(h, "state", "events", "processed"),
+    lock: path.join(h, "state", "daemon.lock"),
+    // logs (OrganLedger's own run logs — rotated, deletable)
+    logs: path.join(h, "logs"),
+    // cache (recomputable)
+    cache: path.join(h, "cache"),
   };
 }
 
 export function ensureDirs(ledgerHome: string): void {
   const p = paths(ledgerHome);
   for (const d of [
-    path.dirname(p.inbox),
-    p.processed,
-    path.dirname(p.tickets),
+    path.dirname(p.tickets), // ledger/
     p.held,
     p.reports,
+    p.processed, // state/events/processed (also creates state/events)
+    p.logs,
+    p.cache,
   ]) {
     fs.mkdirSync(d, { recursive: true });
+  }
+}
+
+export function isInitialized(ledgerHome: string): boolean {
+  return fs.existsSync(paths(ledgerHome).config);
+}
+
+// Non-throwing config load: returns null when uninitialized (no config.json),
+// so the CLI can guide the user to `init` instead of crashing (12.2).
+export function loadConfigSafe(ledgerHome?: string): Config | null {
+  const home = expandHome(ledgerHome || defaultLedgerHome());
+  if (!fs.existsSync(path.join(home, "config.json"))) return null;
+  return loadConfig(home);
+}
+
+export interface VersionStamp {
+  layout: number;
+  schema: number;
+  organledger_version: string;
+  initialized_at: string;
+}
+
+export function readVersion(ledgerHome: string): VersionStamp | null {
+  const vp = paths(ledgerHome).version;
+  if (!fs.existsSync(vp)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(vp, "utf8")) as VersionStamp;
+  } catch {
+    return null;
   }
 }
 
@@ -117,6 +158,8 @@ export function git(home: string, args: string[]): string {
   return execFileSync("git", ["-C", home, ...args], {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
+    // capture stderr instead of leaking it to the console (clean detect/doctor)
+    stdio: ["ignore", "pipe", "pipe"],
   }).trim();
 }
 

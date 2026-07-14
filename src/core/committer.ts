@@ -3,6 +3,7 @@
 // Non-destructive: only `git add <specific files>` — never -A / checkout / reset.
 import { git, gitSafe, paths } from "../util.ts";
 import type { Ledger } from "./ledger.ts";
+import type { Logger } from "../onboard/logger.ts";
 import type { Config, Target, Ticket } from "../types.ts";
 
 interface Pending {
@@ -17,10 +18,12 @@ export class Committer {
   private timer: NodeJS.Timeout | null = null;
   private batchStart = 0;
   private flushing: Promise<void> = Promise.resolve();
+  private log: Logger | null;
 
-  constructor(cfg: Config, ledger: Ledger) {
+  constructor(cfg: Config, ledger: Ledger, log: Logger | null = null) {
     this.cfg = cfg;
     this.ledger = ledger;
+    this.log = log;
   }
 
   // schedule an observed ticket for commit
@@ -81,6 +84,7 @@ export class Committer {
     const add = gitSafe(home, ["add", "--", ...files]);
     if (!add.ok) {
       // record tickets with no commit rather than dropping the audit trail
+      this.log?.error("committer", `git add failed (${files.length} file[s]) — tickets recorded with null commit`);
       for (const p of fresh) {
         p.ticket.git_commit = null;
         this.ledger.append(p.ticket);

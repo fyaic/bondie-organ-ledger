@@ -6,6 +6,7 @@ import { Inbox } from "./inbox.ts";
 import { Ledger } from "./ledger.ts";
 import { Committer } from "./committer.ts";
 import { Pipeline } from "./pipeline.ts";
+import { getLogger, type Logger } from "../onboard/logger.ts";
 import type { Config } from "../types.ts";
 
 export class Daemon {
@@ -14,6 +15,7 @@ export class Daemon {
   ledger: Ledger;
   committer: Committer;
   pipeline: Pipeline;
+  log: Logger;
   private lockPath: string;
   private draining = false;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -23,9 +25,10 @@ export class Daemon {
     this.cfg = cfg ?? loadConfig();
     const home = this.cfg.ledger_home;
     this.lockPath = paths(home).lock;
+    this.log = getLogger(home, this.cfg.log_level ?? "info");
     this.inbox = new Inbox(home);
     this.ledger = new Ledger(home);
-    this.committer = new Committer(this.cfg, this.ledger);
+    this.committer = new Committer(this.cfg, this.ledger, this.log);
     this.pipeline = new Pipeline(this.cfg, this.ledger, this.committer);
   }
 
@@ -72,12 +75,15 @@ export class Daemon {
   }
 
   start(pollMs = 200): void {
+    // prune expired run logs on startup (self-rotation, no library)
+    const removed = this.log.pruneOld(this.cfg.log_retention_days ?? 14);
+    if (removed) this.log.info("logger", `pruned ${removed} expired run-log file(s)`);
     const tick = async () => {
       if (this.stopped) return;
       try {
         await this.drainOnce();
       } catch (e) {
-        console.error("[organledger] drain error:", (e as Error).message);
+        this.log.error("daemon", `drain error: ${(e as Error).message}`);
       }
       this.pollTimer = setTimeout(tick, pollMs);
     };
@@ -89,6 +95,7 @@ export class Daemon {
     if (this.pollTimer) clearTimeout(this.pollTimer);
     await this.committer.flushNow();
     this.releaseLock();
+    this.log.info("daemon", "stopped; lock released");
   }
 }
 
