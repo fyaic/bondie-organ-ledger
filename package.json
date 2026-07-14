@@ -1,0 +1,25 @@
+{
+  "name": "organledger",
+  "version": "0.1.0",
+  "description": "Platform-agnostic Agent-organ self-modification governance layer (Phase 1)",
+  "type": "module",
+  "bin": {
+    "organledger": "src/cli/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "organledger": "node src/cli/index.ts",
+    "ol": "node src/cli/index.ts",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
