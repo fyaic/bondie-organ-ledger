@@ -1,18 +1,23 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Op, OrganSystem, Severity, Status, Ticket } from "../types.ts";
+import type { Op, OrganSystem, Provenance, Severity, Status, Ticket } from "../types.ts";
 import { defaultLedgerHome, localDay, paths, readJsonl } from "../util.ts";
 
 export type BoardDateFilter = "today" | "recent" | "all" | string;
 const RECENT_DAYS = 7;
 export type BoardSystemFilter = "all" | OrganSystem;
 export type BoardSeverityFilter = "all" | Severity;
+// source filter: upstream = came from a git pull/merge/clone; agent = everything
+// else (an agent/user edited a file, or plain content history — no upstream event).
+export type BoardProvenanceFilter = "all" | "upstream" | "agent";
+const UPSTREAM_KINDS = new Set(["pull", "merge", "clone"]);
 
 export interface BoardFilters {
   date?: BoardDateFilter;
   system?: BoardSystemFilter;
   severity?: BoardSeverityFilter;
+  provenance?: BoardProvenanceFilter;
   q?: string;
 }
 
@@ -31,6 +36,7 @@ export interface DashboardCard {
   after_hash: string | null;
   git_commit: string | null;
   created_at: string;
+  provenance: Provenance | null;   // source dimension (where this change came from); null = untagged
 }
 
 export interface BoardResponse {
@@ -110,6 +116,7 @@ function toCard(ticket: Ticket): DashboardCard {
     after_hash: ticket.after_hash,
     git_commit: ticket.git_commit,
     created_at: ticket.created_at,
+    provenance: ticket.provenance ?? null,
   };
 }
 
@@ -117,13 +124,32 @@ function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
   const date = filters.date || "recent";
   const system = filters.system || "all";
   const severity = filters.severity || "all";
+  const provenance = filters.provenance || "all";
   const q = (filters.q || "").trim().toLowerCase();
 
   if (!matchesDate(card.created_at, date)) return false;
   if (system !== "all" && card.system !== system) return false;
   if (severity !== "all" && card.severity !== severity) return false;
+  if (provenance !== "all") {
+    const isUpstream = !!card.provenance && UPSTREAM_KINDS.has(card.provenance.kind);
+    if (provenance === "upstream" && !isUpstream) return false;
+    if (provenance === "agent" && isUpstream) return false;
+  }
   if (q && !card.file.toLowerCase().includes(q) && !card.change_id.toLowerCase().includes(q)) return false;
   return true;
+}
+
+// Load the GitSource map written by `organledger provenance` / `doctor`. The
+// dashboard NEVER runs git — it only reads this file (architectural red line).
+// Returns { missing:true } when the file isn't there yet so the UI can prompt.
+export function loadProvenance(ledgerHome = defaultLedgerHome()): { missing: boolean; report: unknown } {
+  const file = paths(ledgerHome).provenance;
+  if (!fs.existsSync(file)) return { missing: true, report: null };
+  try {
+    return { missing: false, report: JSON.parse(fs.readFileSync(file, "utf8")) };
+  } catch {
+    return { missing: true, report: null };
+  }
 }
 
 function buildColumns(cards: DashboardCard[]): Record<Status, DashboardCard[]> {

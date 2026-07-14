@@ -53,6 +53,8 @@ const el = {
   date: document.querySelector("#dateFilter"),
   system: document.querySelector("#systemFilter"),
   severity: document.querySelector("#severityFilter"),
+  provenance: document.querySelector("#provenanceFilter"),
+  sources: document.querySelector("#sourcesPanel"),
   q: document.querySelector("#queryFilter"),
   refresh: document.querySelector("#refreshButton"),
   poll: document.querySelector("#pollToggle"),
@@ -76,17 +78,18 @@ function init() {
   bindEvents();
   syncThemeButton();
   loadBoard();
+  loadSources();
 }
 
 function bindEvents() {
   for (const button of el.viewButtons) {
     button.addEventListener("click", () => setView(button.dataset.view));
   }
-  for (const control of [el.date, el.system, el.severity]) {
+  for (const control of [el.date, el.system, el.severity, el.provenance]) {
     control.addEventListener("change", loadBoard);
   }
   el.q.addEventListener("input", debounce(loadBoard, 180));
-  el.refresh.addEventListener("click", loadBoard);
+  el.refresh.addEventListener("click", () => { loadBoard(); loadSources(); });
   el.poll.addEventListener("change", togglePolling);
   el.theme.addEventListener("click", toggleTheme);
   el.drawerClose.addEventListener("click", closeDrawer);
@@ -103,6 +106,7 @@ async function loadBoard() {
       date: el.date.value,
       system: el.system.value,
       severity: el.severity.value,
+      provenance: el.provenance.value,
       q: el.q.value.trim(),
     });
     const response = await fetch(`/api/board?${params.toString()}`);
@@ -148,6 +152,64 @@ function render(board) {
   }
 
   renderBoardColumns(board);
+}
+
+// G5: 器官来源面板 — reads /api/provenance (state/provenance.json). The board
+// NEVER runs git; this is a pure file read served by the server.
+async function loadSources() {
+  try {
+    const response = await fetch("/api/provenance");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderSources(await response.json());
+  } catch {
+    el.sources.hidden = true;
+  }
+}
+
+function renderSources(payload) {
+  if (!payload || payload.missing || !payload.report) {
+    el.sources.hidden = false;
+    el.sources.replaceChildren(Object.assign(document.createElement("div"), {
+      className: "sources-empty",
+      textContent: "暂无来源地图 —— 运行 `organledger provenance` 生成 state/provenance.json 后刷新。",
+    }));
+    return;
+  }
+  const report = payload.report;
+  const groups = report.targets || [];
+  const allSources = groups.flatMap((g) => (g.sources || []).map((s) => ({ ...s, system: g.system })));
+  el.sources.hidden = false;
+
+  const header = document.createElement("div");
+  header.className = "sources-header";
+  const asOf = report.fetched ? "已刷新" : "ahead/behind 为上次 fetch 时";
+  header.innerHTML = `<h2>器官来源 / Sources</h2><span class="sources-sub">${allSources.length} 个 git 源 · ${escapeHtml(asOf)}</span>`;
+
+  const table = document.createElement("div");
+  table.className = "sources-table";
+  table.append(...allSources.map(renderSourceRow));
+  el.sources.replaceChildren(header, table);
+}
+
+function renderSourceRow(s) {
+  const row = document.createElement("div");
+  row.className = "source-row";
+  const dir = s.is_nested ? s.rel : `${s.system || ""} (parent)`;
+  const head = s.head_commit ? s.head_commit.slice(0, 7) : "—";
+  const ab = s.upstream
+    ? `<span class="ab">↓${s.behind ?? "?"} ↑${s.ahead ?? "?"}</span>`
+    : `<span class="ab muted">无 upstream</span>`;
+  const dirty = s.dirty ? `<span class="badge dirty">本地改动</span>` : "";
+  const behindBadge = (s.behind ?? 0) > 0 ? `<span class="badge behind">落后 ${s.behind}</span>` : "";
+  row.innerHTML = `
+    <span class="src-dir" title="${escapeAttr(s.repo_root || "")}">${escapeHtml(dir)}</span>
+    <span class="src-remote">${escapeHtml(s.remote_url || "（无 remote）")}</span>
+    <span class="src-branch">@${escapeHtml(s.branch || "detached")}</span>
+    <span class="src-head">${escapeHtml(head)}</span>
+    ${ab}
+    <span class="src-badges">${behindBadge}${dirty}</span>
+  `;
+  return row;
 }
 
 function dot(color, text) {
@@ -235,6 +297,7 @@ function openDrawer(card) {
       ${detail("Author", card.author_verified ? "已验证" : "未验证署名")}
       ${detail("时间", card.created_at)}
     </div>
+    ${provenanceBlock(card.provenance)}
     ${card.status === "held" ? `<button class="command-button" type="button" data-command="${escapeAttr(command)}">复制 ${escapeHtml(command)}</button>` : ""}
   `;
 
@@ -260,6 +323,33 @@ async function copyCommand(command) {
 
 function detail(label, value) {
   return `<div class="detail-item"><span>${escapeHtml(label)}</span><code>${escapeHtml(value)}</code></div>`;
+}
+
+const KIND_LABEL = {
+  content: "文件历史", pull: "上游 pull", merge: "上游 merge", clone: "clone",
+  "local-commit": "本地提交", "history-move": "HEAD 移动",
+};
+
+// Drawer provenance block: shows the SOURCE dimension. Source is verifiable
+// (content-addressed SHA / config), identity is NOT — the copy makes that split
+// explicit so no one reads "verified" as "we know who did it".
+function provenanceBlock(p) {
+  if (!p) return "";
+  const isUpstream = ["pull", "merge", "clone"].includes(p.kind);
+  const move = p.from_commit || p.to_commit
+    ? `<div class="prov-move"><code>${escapeHtml((p.from_commit || "∅").slice(0, 8))}</code> → <code>${escapeHtml((p.to_commit || "∅").slice(0, 8))}</code></div>`
+    : "";
+  return `
+    <div class="provenance ${isUpstream ? "upstream" : "local"}">
+      <div class="prov-head">
+        <span class="prov-kind">${escapeHtml(KIND_LABEL[p.kind] || p.kind)}</span>
+        ${isUpstream ? `<span class="badge upstream-badge">上游更新</span>` : `<span class="badge agent-badge">Agent 自改</span>`}
+      </div>
+      <div class="prov-src">来自 <code>${escapeHtml(p.remote_url || "（无 remote）")}</code> <span class="prov-branch">@${escapeHtml(p.branch || "detached")}</span></div>
+      ${move}
+      <div class="prov-verify">✅ 来源已验证（内容寻址）· ⚠️ 身份未验证（谁改的仍不可证）</div>
+    </div>
+  `;
 }
 
 function pill(value) {

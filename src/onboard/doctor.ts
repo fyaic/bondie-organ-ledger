@@ -6,6 +6,7 @@ import { liveDaemonPid } from "../core/daemon.ts";
 import { Ledger } from "../core/ledger.ts";
 import { detectEnvironment } from "./detect.ts";
 import { isAutostartInstalled } from "./autostart.ts";
+import { buildProvenanceReport, writeProvenanceReport } from "./provenance.ts";
 
 type Mark = "🟢" | "🟡" | "🔴";
 
@@ -53,6 +54,28 @@ export function runDoctor(homeArg: string): { lines: string[]; healthy: boolean 
   // ledger chain
   const v = new Ledger(home).verify();
   add(v.ok ? "🟢" : "🔴", "audit", v.ok ? `hash chain intact (${v.detail})` : `CHAIN BROKEN: ${v.detail}`);
+
+  // provenance: git source map per target (offline, read-only). Refreshes
+  // state/provenance.json as a side benefit so the dashboard stays current.
+  try {
+    const report = buildProvenanceReport(cfg, { fetch: false });
+    for (const g of report.targets) {
+      if (!g.git) {
+        add("🟡", "provenance", `${g.system}: not a git repo — no sources`);
+        continue;
+      }
+      const dirty = g.sources.filter((s) => s.dirty).length;
+      const behind = g.sources.filter((s) => (s.behind ?? 0) > 0).length;
+      const noUp = g.sources.filter((s) => !s.upstream).length;
+      const mark: Mark = behind > 0 || dirty > 0 ? "🟡" : "🟢";
+      add(mark, "provenance",
+        `${g.system}: ${g.sources.length} source(s) — ${dirty} dirty, ${behind} behind upstream, ${noUp} no-upstream (as of last fetch)`);
+    }
+    writeProvenanceReport(home, report);
+    add("🟢", "provenance", `state/provenance.json refreshed (${paths(home).provenance})`);
+  } catch (e) {
+    add("🟡", "provenance", `could not scan sources: ${(e as Error).message}`);
+  }
 
   // daemon running
   const pid = liveDaemonPid(p.lock);

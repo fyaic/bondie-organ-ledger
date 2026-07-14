@@ -13,8 +13,9 @@ import { rollback } from "./rollback.ts";
 import { approve, reject } from "./approve.ts";
 import { Ledger } from "../core/ledger.ts";
 import { runInit } from "../onboard/init.ts";
-import { backfillFromGitHistory } from "../onboard/backfill.ts";
+import { backfillFromGitHistory, backfillReflog } from "../onboard/backfill.ts";
 import { runDoctor } from "../onboard/doctor.ts";
+import { buildProvenanceReport, writeProvenanceReport, formatProvenanceTable } from "../onboard/provenance.ts";
 import { printPaths, runReset, runUninstall } from "../onboard/lifecycle.ts";
 import { installAutostart } from "../onboard/autostart.ts";
 import { startDashboardServer } from "../dashboard/server.ts";
@@ -174,10 +175,31 @@ async function main(): Promise<void> {
         const r = backfillFromGitHistory(t, ledger, cfg, { fullHistory, sinceDays });
         const span = r.earliest && r.latest ? `  [${r.earliest.slice(0, 10)} → ${r.latest.slice(0, 10)}]` : "";
         console.log(`  ${t.system}: ${r.note}${span}`);
+        if (flags["reflog"]) {
+          const rl = backfillReflog(t, ledger, cfg, { includeNonUpstream: !!flags["include-non-upstream"] });
+          console.log(`  ${t.system} [reflog]: ${rl.note}`);
+        }
       }
       const v = new Ledger(cfg.ledger_home).verify();
       console.log(`  tickets ${before} → ${ledger.all().length}; chain: ${v.ok ? "intact ✓" : "BROKEN@" + v.brokenIndex}`);
       process.exit(v.ok ? 0 : 1);
+    }
+    case "provenance": {
+      // READ-ONLY: scans each target's GitSources and writes state/provenance.json
+      // for the dashboard. Safe to run while the daemon is up (no ledger writes,
+      // no guardSingleWriter). --fetch is the only networked path (fetch-only).
+      const fetch = !!flags["fetch"];
+      const report = buildProvenanceReport(cfg, { fetch });
+      if (flags["json"]) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        const nSources = report.targets.reduce((n, g) => n + g.sources.length, 0);
+        console.log(`OrganLedger provenance — ${nSources} source(s)${fetch ? " (fetched)" : " (offline, ahead/behind as of last fetch)"}`);
+        formatProvenanceTable(report).forEach((l) => console.log(l));
+      }
+      const out = writeProvenanceReport(cfg.ledger_home, report);
+      if (!flags["json"]) console.log(`\n[written] ${out}`);
+      return;
     }
     case "verify-ledger": {
       const v = new Ledger(cfg.ledger_home).verify();
@@ -207,7 +229,7 @@ function printHelp(home: string): void {
   if (uninit) lines.push("未初始化 —— 先运行 'organledger init'   (not initialized — run 'organledger init')", "");
   lines.push(
     "  init [--yes] [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--autostart]",
-    "  backfill [--full-history] [--since-days N]   replay target git history into the ledger (idempotent)",
+    "  backfill [--full-history] [--since-days N] [--reflog]   replay target git history (all GitSources) into the ledger (idempotent)",
     "  doctor                     health report (env/paths/config/audit/runtime/capacity)",
     "  paths                      show where every artifact lives",
     "  reset [--keep-audit(default) | --all --confirm]",
@@ -220,6 +242,7 @@ function printHelp(home: string): void {
     "  report [--date today|YYYY-MM-DD]",
     "  rollback --change <id> | --session <id> | --before <ts> [--confirm]",
     "  approve <change_id> | reject <change_id>",
+    "  provenance [--fetch] [--json]   scan each organ folder's git source → state/provenance.json (read-only)",
     "  verify-ledger              validate hash chain",
     "  status                     quick summary"
   );

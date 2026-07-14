@@ -48,6 +48,31 @@ export interface Ticket {
   git_commit: string | null;
   prev_ticket_hash: string;      // sha256 of previous ticket's canonical JSON
   created_at: string;
+  // Phase 1.6 provenance (source) dimension. OPTIONAL + additive: old tickets have
+  // no such key → canonicalJson omits undefined keys → their bytes (and the hash
+  // chain) are unchanged. Only backfilled/source-tagged tickets carry it.
+  provenance?: Provenance;
+}
+
+// Provenance = the source (where this change came from), a dimension SEPARATE
+// from identity (who). `verified: true` here is a literal: it may ONLY hold
+// content-addressable / config-provable facts (commit SHA, remote URL, branch).
+// It must NEVER carry unprovable "who did it / intent" info — identity stays on
+// TicketAuthor{verified:false}. This split (source verifiable / identity not) is
+// the core concept of Phase 1.6.
+export type ProvenanceKind =
+  | "content"                     // file-level history from a specific commit (content backfill)
+  | "pull" | "merge" | "clone"    // reflog upstream-update events
+  | "local-commit" | "history-move"; // reflog non-upstream HEAD moves
+
+export interface Provenance {
+  kind: ProvenanceKind;
+  repo_root: string;
+  remote_url: string | null;
+  branch: string | null;
+  from_commit: string | null;    // update event's old HEAD (null for content tickets)
+  to_commit: string | null;      // update event's new HEAD / content ticket's own commit
+  verified: true;                // ← literal true: content-addressable/config-provable only
 }
 
 export interface TicketAuthor {

@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { BoardFilters } from "./data.ts";
-import { loadBoard } from "./data.ts";
+import { loadBoard, loadProvenance } from "./data.ts";
 
 export interface DashboardServerOptions {
   port?: number;
@@ -33,6 +33,10 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
       if (url.pathname === "/api/board") {
         const data = loadBoard(parseFilters(url), options.ledgerHome);
         return sendJson(res, 200, data);
+      }
+      if (url.pathname === "/api/provenance") {
+        // read-only: serves state/provenance.json (never runs git)
+        return sendJson(res, 200, loadProvenance(options.ledgerHome));
       }
       if (url.pathname === "/" || url.pathname === "/index.html") {
         return sendStatic(res, "index.html", theme);
@@ -64,6 +68,7 @@ function parseFilters(url: URL): BoardFilters {
     date: url.searchParams.get("date") || "recent",
     system: (url.searchParams.get("system") || "all") as BoardFilters["system"],
     severity: (url.searchParams.get("severity") || "all") as BoardFilters["severity"],
+    provenance: (url.searchParams.get("provenance") || "all") as BoardFilters["provenance"],
     q: url.searchParams.get("q") || "",
   };
 }

@@ -38,6 +38,11 @@
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
+          <select id="provenanceFilter" aria-label="来源">
+            <option value="all">全部来源</option>
+            <option value="upstream">上游更新</option>
+            <option value="agent">Agent 自改</option>
+          </select>
           <input id="queryFilter" type="search" placeholder="文件或 change id" />
           <button id="refreshButton" type="button">刷新</button>
           <label class="switch">
@@ -72,6 +77,8 @@
       </section>
 
       <section id="reportsBar" class="reports-bar" aria-label="近期日报" hidden></section>
+
+      <section id="sourcesPanel" class="sources-panel" aria-label="器官来源" hidden></section>
 
       <section id="board" class="board" aria-label="看板"></section>
     </main>
