@@ -5,15 +5,56 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { paths, readVersion, loadConfigSafe } from "../src/util.ts";
+import { paths, readVersion, loadConfigSafe, git } from "../src/util.ts";
 import { migrateLayout, needsMigration } from "../src/onboard/migrate.ts";
 import { Ledger } from "../src/core/ledger.ts";
 import { Logger } from "../src/onboard/logger.ts";
 import { DEFAULT_IGNORE } from "../src/onboard/init.ts";
-import type { Ticket } from "../src/types.ts";
+import { backfillFromGitHistory } from "../src/onboard/backfill.ts";
+import type { Config, Target, Ticket } from "../src/types.ts";
 
 function mktmp(p: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), p));
+}
+
+// minimal config: skills=high, cron=high; ignore runtime churn under cron/runs
+function testConfig(home: string): Config {
+  return {
+    ledger_home: home,
+    targets: [],
+    severity_rules: [
+      { glob: "skills/**", severity: "high" },
+      { glob: "cron/**", severity: "high" },
+    ],
+    rewrite_ratio_critical: 0.5,
+    debounce_ms: 3000,
+    session_squash_ms: 15000,
+    gate: { default: "observe", held_on: ["critical", "delete"] },
+  };
+}
+
+// build a throwaway git target with 3 commits touching organ + runtime files
+function makeGitTarget(): { home: string; target: Target } {
+  const home = mktmp("ol-git-");
+  git(home, ["init", "-q"]);
+  git(home, ["config", "user.email", "t@t"]);
+  git(home, ["config", "user.name", "Tester"]);
+  const write = (rel: string, body: string) => {
+    fs.mkdirSync(path.join(home, path.dirname(rel)), { recursive: true });
+    fs.writeFileSync(path.join(home, rel), body);
+  };
+  write("skills/s0/SKILL.md", "v1\n");
+  git(home, ["add", "-A"]); git(home, ["commit", "-q", "-m", "add s0"]);
+  write("skills/s1/SKILL.md", "hello\n");
+  write("cron/runs/run-1.jsonl", '{"x":1}\n'); // runtime churn — must be dropped
+  git(home, ["add", "-A"]); git(home, ["commit", "-q", "-m", "add s1 + a run"]);
+  write("skills/s0/SKILL.md", "v2 changed\n");
+  git(home, ["add", "-A"]); git(home, ["commit", "-q", "-m", "edit s0"]);
+  const target: Target = {
+    system: "openclaw", home, watch: ["skills", "cron"], git: true,
+    ignore: ["cron/runs/**"],
+  };
+  return { home, target };
 }
 
 // Build a realistic v1 (flat) home: a valid 3-ticket chain + flat state artifacts.
@@ -139,4 +180,54 @@ test("DEFAULT_IGNORE carries the Phase-1 runtime exclusions", () => {
   for (const p of ["cron/runs/**", "flows/*.sqlite", "tasks/*.sqlite", "**/*.log", "agents/main/**"]) {
     assert.ok(DEFAULT_IGNORE.includes(p), `missing ${p}`);
   }
+});
+
+test("backfill: git history → tickets, chain intact, verified stays false, churn dropped", () => {
+  const ledgerHome = mktmp("ol-bf-");
+  const { target } = makeGitTarget();
+  const cfg = testConfig(ledgerHome);
+  const ledger = new Ledger(ledgerHome);
+
+  const r = backfillFromGitHistory(target, ledger, cfg, { fullHistory: true });
+
+  // 3 organ changes: create s0, create s1, update s0 (cron/runs churn dropped)
+  assert.equal(r.tickets, 3, "three organ-definition tickets");
+  assert.ok(r.droppedFiles >= 1, "cron/runs runtime file dropped");
+  assert.equal(new Ledger(ledgerHome).verify().ok, true, "hash chain intact after backfill");
+
+  const tickets = new Ledger(ledgerHome).all();
+  assert.ok(tickets.every((t) => t.author.verified === false), "author.verified never true");
+  assert.ok(tickets.every((t) => !!t.git_commit), "every ticket carries its git_commit");
+  assert.ok(tickets.every((t) => t.status === "observed"), "historical tickets are observed, not held");
+  assert.ok(!tickets.some((t) => t.file.startsWith("cron/runs/")), "no runtime-churn ticket");
+  // ops mapped from git status
+  assert.ok(tickets.some((t) => t.file === "skills/s0/SKILL.md" && t.op === "create"));
+  assert.ok(tickets.some((t) => t.file === "skills/s0/SKILL.md" && t.op === "update"));
+  // git author captured as an UNVERIFIED hint
+  assert.ok(tickets.some((t) => (t.author.id ?? "").includes("git:Tester")), "git author stored as hint");
+});
+
+test("backfill is idempotent: re-run adds zero tickets (dedup by git_commit)", () => {
+  const ledgerHome = mktmp("ol-bf2-");
+  const { target } = makeGitTarget();
+  const cfg = testConfig(ledgerHome);
+
+  const first = backfillFromGitHistory(target, new Ledger(ledgerHome), cfg, { fullHistory: true });
+  const countAfterFirst = new Ledger(ledgerHome).all().length;
+  const second = backfillFromGitHistory(target, new Ledger(ledgerHome), cfg, { fullHistory: true });
+
+  assert.equal(second.tickets, 0, "second run appends nothing");
+  assert.ok(second.skippedCommits >= 3, "all commits recognized as already recorded");
+  assert.equal(new Ledger(ledgerHome).all().length, countAfterFirst, "ledger size unchanged");
+  assert.equal(new Ledger(ledgerHome).verify().ok, true);
+  assert.equal(first.tickets, 3);
+});
+
+test("backfill on a non-git target is a safe no-op", () => {
+  const ledgerHome = mktmp("ol-bf3-");
+  const cfg = testConfig(ledgerHome);
+  const target: Target = { system: "hermes", home: mktmp("ol-nogit-"), watch: ["skills"], git: false, ignore: [] };
+  const r = backfillFromGitHistory(target, new Ledger(ledgerHome), cfg, {});
+  assert.equal(r.tickets, 0);
+  assert.match(r.note, /not a git repo/);
 });

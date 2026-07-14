@@ -12,6 +12,7 @@ import { rollback } from "./rollback.ts";
 import { approve, reject } from "./approve.ts";
 import { Ledger } from "../core/ledger.ts";
 import { runInit } from "../onboard/init.ts";
+import { backfillFromGitHistory } from "../onboard/backfill.ts";
 import { runDoctor } from "../onboard/doctor.ts";
 import { printPaths, runReset, runUninstall } from "../onboard/lifecycle.ts";
 import { installAutostart } from "../onboard/autostart.ts";
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
         openclaw: S(flags["openclaw"]),
         hermes: S(flags["hermes"]),
         noSnapshot: !!flags["no-snapshot"],
+        noBackfill: !!flags["no-backfill"],
+        fullHistory: !!flags["full-history"],
       });
       res.lines.forEach((l) => console.log(l));
       if (flags["yes"] && !flags["no-autostart"]) {
@@ -136,6 +139,25 @@ async function main(): Promise<void> {
       if (guardSingleWriter(cfg)) return;
       reject(cfg, rest[0]).forEach((l) => console.log(l));
       return;
+    case "backfill": {
+      if (guardSingleWriter(cfg)) return;
+      const ledger = new Ledger(cfg.ledger_home);
+      const before = ledger.all().length;
+      const fullHistory = !!flags["full-history"];
+      const sinceDays = Number(S(flags["since-days"]) || "90") || 90;
+      for (const t of cfg.targets) {
+        if (!t.git) {
+          console.log(`  ${t.system}: not a git repo — nothing to backfill`);
+          continue;
+        }
+        const r = backfillFromGitHistory(t, ledger, cfg, { fullHistory, sinceDays });
+        const span = r.earliest && r.latest ? `  [${r.earliest.slice(0, 10)} → ${r.latest.slice(0, 10)}]` : "";
+        console.log(`  ${t.system}: ${r.note}${span}`);
+      }
+      const v = new Ledger(cfg.ledger_home).verify();
+      console.log(`  tickets ${before} → ${ledger.all().length}; chain: ${v.ok ? "intact ✓" : "BROKEN@" + v.brokenIndex}`);
+      process.exit(v.ok ? 0 : 1);
+    }
     case "verify-ledger": {
       const v = new Ledger(cfg.ledger_home).verify();
       console.log(v.ok ? `OK: ${v.detail}` : `TAMPER: ${v.detail}`);
@@ -163,7 +185,8 @@ function printHelp(home: string): void {
   ];
   if (uninit) lines.push("未初始化 —— 先运行 'organledger init'   (not initialized — run 'organledger init')", "");
   lines.push(
-    "  init [--yes] [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--autostart]",
+    "  init [--yes] [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--autostart]",
+    "  backfill [--full-history] [--since-days N]   replay target git history into the ledger (idempotent)",
     "  doctor                     health report (env/paths/config/audit/runtime/capacity)",
     "  paths                      show where every artifact lives",
     "  reset [--keep-audit(default) | --all --confirm]",

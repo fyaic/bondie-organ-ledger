@@ -7,6 +7,8 @@ import { detectEnvironment, type Detection, type DetectedTarget } from "./detect
 import { migrateLayout, writeVersion, ORGANLEDGER_VERSION } from "./migrate.ts";
 import { getLogger } from "./logger.ts";
 import { gitSafe } from "../util.ts";
+import { Ledger } from "../core/ledger.ts";
+import { backfillFromGitHistory } from "./backfill.ts";
 import type { Config, Target, SeverityRule } from "../types.ts";
 
 // Runtime-churn exclusions converged in Phase 1 (D-005). Single source shared by
@@ -37,6 +39,8 @@ export interface InitOptions {
   openclaw?: string;
   hermes?: string;
   noSnapshot?: boolean;
+  noBackfill?: boolean;   // skip historical git-history backfill
+  fullHistory?: boolean;  // backfill ALL history (default: last 90 days)
 }
 
 export interface InitResult {
@@ -186,19 +190,19 @@ export function runInit(opts: InitOptions): InitResult {
 
   // Step 1: detect
   const det = detectEnvironment({ openclaw: opts.openclaw, hermes: opts.hermes });
-  lines.push(`\n[1/6] Environment`);
+  lines.push(`\n[1/7] Environment`);
   lines.push(`  node ${det.nodeVersion} ${det.nodeOk ? "✓" : "✗ (need ≥24)"}  |  git ${det.gitVersion ?? "MISSING"}`);
   for (const t of det.targets) lines.push(`  ${t.system}: ${t.note}`);
 
   // Step 2: config (generate or merge)
   const existing = loadConfigSafe(home);
   const cfg = buildConfig(home, det, existing);
-  lines.push(`\n[2/6] Config`);
+  lines.push(`\n[2/7] Config`);
   lines.push(`  ${existing ? "merged with existing" : "generated"} config.json — ${cfg.targets.length} target(s): ${cfg.targets.map((t) => t.system).join(", ") || "(none usable yet)"}`);
 
   // Step 3: dirs + migrate + version
   ensureDirs(home);
-  lines.push(`\n[3/6] Layout`);
+  lines.push(`\n[3/7] Layout`);
   const mig = migrateLayout(home);
   lines.push(mig.migrated
     ? `  migrated v1→v2 (tickets ${mig.ticketsBefore}→${mig.ticketsAfter}, backup ${mig.backup})`
@@ -207,8 +211,30 @@ export function runInit(opts: InitOptions): InitResult {
   // write config AFTER migrate (so it lands in the final layout)
   fs.writeFileSync(paths(home).config, JSON.stringify(cfg, null, 2));
 
-  // Step 4: first-scan water line
-  lines.push(`\n[4/6] First-scan water line`);
+  // Step 4: historical backfill — replay target git history into the ledger so the
+  // dashboard shows organ evolution instead of a blank slate. Read-only on target;
+  // idempotent (skips commits already recorded). author.verified stays false.
+  lines.push(`\n[4/7] History backfill`);
+  if (opts.noBackfill) {
+    lines.push(`  skipped (--no-backfill)`);
+  } else {
+    const ledger = new Ledger(home);
+    for (const t of cfg.targets) {
+      if (!t.git) {
+        lines.push(`  ${t.system}: not a git repo — no history to backfill`);
+        continue;
+      }
+      const r = backfillFromGitHistory(t, ledger, cfg, { fullHistory: opts.fullHistory });
+      const span = r.earliest && r.latest ? `  [${r.earliest.slice(0, 10)} → ${r.latest.slice(0, 10)}]` : "";
+      lines.push(`  ${t.system}: ${r.note}${span}`);
+    }
+    // RED LINE: backfill must not break the hash chain
+    const v = new Ledger(home).verify();
+    lines.push(`  chain: ${v.ok ? "intact ✓" : "BROKEN@" + v.brokenIndex + " ✗"} (${v.detail})`);
+  }
+
+  // Step 5: first-scan water line
+  lines.push(`\n[5/7] First-scan water line`);
   if (opts.noSnapshot) {
     lines.push(`  skipped (--no-snapshot)`);
   } else if (!opts.yes) {
@@ -217,14 +243,14 @@ export function runInit(opts: InitOptions): InitResult {
     for (const t of cfg.targets) lines.push(...firstScanSnapshot(t));
   }
 
-  // Step 5: self-check (lightweight; full report via `doctor`)
-  lines.push(`\n[5/6] Self-check`);
+  // Step 6: self-check (lightweight; full report via `doctor`)
+  lines.push(`\n[6/7] Self-check`);
   const log = getLogger(home, cfg.log_level ?? "info");
   log.info("init", `initialized layout v2, ${cfg.targets.length} target(s)`);
   lines.push(`  logs → ${paths(home).logs}  |  run 'organledger doctor' for full health report`);
 
-  // Step 6: finish
-  lines.push(`\n[6/6] Done ✅  organledger v${ORGANLEDGER_VERSION}`);
+  // Step 7: finish
+  lines.push(`\n[7/7] Done ✅  organledger v${ORGANLEDGER_VERSION}`);
   lines.push(`  Next: 'organledger daemon' to start governing.`);
   lines.push(`  'organledger paths' shows where everything lives.`);
 
