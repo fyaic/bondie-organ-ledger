@@ -1,10 +1,12 @@
-# OrganLedger（器官账本）— Phase 1
+# OrganLedger（器官账本）
 
-平台无关的 **Agent 器官文件（skills / agents / cron / memory / flows）自修改治理层**。
-Agent 会自己改自己的"器官"，但这些写操作没身份、没意图、没审批、没历史、没可观测性。
-OrganLedger 给它们补上「**意图 → 审批 → 审计 → 回滚**」闭环。
+> 平台无关的 **Agent 器官文件自修改治理层** —— 给 AI Agent 自我修改的 skills / agents / cron / memory / flows 补上「**意图 → 审批 → 审计 → 回滚**」闭环。
 
-> 权威架构：`AIC-000/T-B Agent体检报告/08-架构设计.md`。本仓库是其 Phase 1 实现。
+Agent 会自己改自己的"器官"，但这些写操作**没身份、没意图、没审批、没历史、没可观测性**。
+OrganLedger 站在 OpenClaw / Hermes 之外，把每次器官改动自动记成**带意图的变更单 + git 版本 + 防篡改哈希链账本**，可日报、可回滚、高危可拦审，并配一个本地只读审计看板。
+
+> 状态：Phase 1（治理引擎）+ Phase 1.5（产品级 onboarding / 数据布局 / 本地审计看板）已实现并测试通过。
+> **身份可验证（provenance）留 Phase 2**——本期如实标注"未验证署名"，不声称已证明谁改的。
 
 ## 🚀 快速开始（新用户从这里）
 
@@ -161,4 +163,11 @@ npm run typecheck                  # tsc --noEmit
 
 ## 数据契约
 
-见 `AIC-000/T-B Agent体检报告/12-数据契约速查表.md`（event / ticket / commit message / config schema）。
+- **类型定义**：`src/types.ts`（`OrganEvent` / `Ticket` / `Config` 等）。
+- **变更单（ticket）**：哈希链账本 `~/.organledger/ledger/tickets.jsonl`，每条含 `change_id / system / author{verified:false} / file / op / before_hash / after_hash / severity / status / git_commit / prev_ticket_hash`。
+- **commit message**：`[chg-<id>][<system>][session:<id>] <op> <file>` + reason/severity/status。
+- **config**：`~/.organledger/config.json`（监听目标、分级规则、时间窗、ignore globs、log_level/保留期）。
+
+## Phase 2（未做，路线）
+
+见 `docs/phase2-identity.md`：in-band 会话绑定 → `verified:true`、Bash 绕过按 pid/时间窗关联、SHA256 基线自愈、attestation、外部 issue/PR 审批。**Schema 已为身份预留字段，Phase 2 只增强不重构。**

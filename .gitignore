@@ -4,3 +4,7 @@ dist/
 .DS_Store
 .serena/
 .playwright-mcp/
+
+# python bytecode
+__pycache__/
+*.pyc
