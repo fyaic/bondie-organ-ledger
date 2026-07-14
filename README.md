@@ -89,6 +89,10 @@ organledger backfill --since-days 30 # 自定义窗口
 - **诚实边界**：`author.verified` 恒 `false`。git author 仅作**未验证 hint** 存入 `author.id`（`git:<name> <email>`），**不声称证明了谁改的**——自动 commit 会让作者被 last-committer 偏斜。
 - **红线**：回填后 `verify-ledger` 必须通过（`init` 步骤 4 内联校验）。回填在**空账本**上最干净；对已有 ticket 的老库回填 append 到链尾，历史 `created_at` 早于既有 ticket（时间非单调，但链完整）。
 
+> **让你的编码终端 Agent 一键填充看板**：把 [`prompts/populate-dashboard-history.md`](prompts/populate-dashboard-history.md)
+> 丢给 Claude Code / Cursor / Codex（或直接说"运行 `prompts/populate-dashboard-history.md` 里的任务"）,
+> 它会按内置守则**先停 daemon（含 Windows 真实 PID 停法）→ 回填 → verify-ledger → 打开看板**,全程只读 target、幂等安全。
+
 生命周期：
 ```bash
 organledger doctor        # 健康报告（env/paths/config/audit/runtime/capacity 🟢🟡🔴）
@@ -167,6 +171,9 @@ src/
 ├── onboard/  init detect migrate logger doctor lifecycle autostart backfill  # Phase 1.5
 ├── dashboard/  server data public/(index.html dashboard.css dashboard.js)  # 本地只读看板
 └── cli/      index report rollback approve
+
+prompts/
+└── populate-dashboard-history.md   # 交给编码 Agent 一键回填看板历史的可复用任务提示
 ```
 
 ## 测试
