@@ -8,6 +8,7 @@ import { Inbox } from "../../core/inbox.ts";
 import { fileSha, uuid, nowIso } from "../../util.ts";
 import { OrganAudit } from "./organ-audit.ts";
 import { dumpSqliteToMarkdown } from "./sqlite-dump.ts";
+import { globToRegExp } from "../../core/classifier.ts";
 import type { Config, Target, OrganEvent, Op } from "../../types.ts";
 
 export class OpenClawWatcher {
@@ -17,12 +18,21 @@ export class OpenClawWatcher {
   private audit: OrganAudit;
   private watcher: import("chokidar").FSWatcher | null = null;
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private ignoreGlobs: RegExp[];
 
   constructor(cfg: Config, target: Target) {
     this.cfg = cfg;
     this.target = target;
     this.inbox = new Inbox(cfg.ledger_home);
     this.audit = new OrganAudit(target.home);
+    // Authoritative ignore filter: config globs matched against the RELATIVE,
+    // forward-slash organ path. Deterministic regardless of chokidar's path form.
+    this.ignoreGlobs = target.ignore.map(globToRegExp);
+  }
+
+  // single source of truth for "is this runtime junk, not an organ definition?"
+  private shouldIgnore(norm: string): boolean {
+    return this.ignoreGlobs.some((r) => r.test(norm));
   }
 
   start(): void {
@@ -63,18 +73,28 @@ export class OpenClawWatcher {
       /[\\/]agents[\\/]main[\\/]/,
       /[\\/]agents[\\/][^\\/]+[\\/]sessions[\\/]/,
       /[\\/]agents[\\/][^\\/]+[\\/]agent[\\/]/,
-      /\.(tmp|lock|pyc)$/,
+      /\.(tmp|lock|pyc|log)$/,
       /\.usage-cost-cache\.json/,
-      /memory[\\/]_dump\.md$/,
+      // runtime state — NOT organ definitions (flooding source; see 99 D-005).
+      // Governance scope = jobs.json / flow defs / SKILL.md / AGENTS.md, not run logs.
+      /[\\/]cron[\\/]runs[\\/]/,             // cron execution history jsonl
+      /[\\/]flows[\\/][^\\/]*\.sqlite/,      // flow registry sqlite (+ -shm/-wal)
+      /[\\/]tasks[\\/][^\\/]*\.sqlite/,      // task runs sqlite (+ -shm/-wal)
+      /[\\/]outputs[\\/]/,                   // skill run outputs
+      // memory main.sqlite stays watched (drives dump-to-md); ignore only its WAL sidecars
       /memory[\\/].*\.sqlite-(shm|wal)$/,
-      /logs([\\/]|$)/,
       /memory[\\/]_dump\.md$/,
+      /logs([\\/]|$)/,
       /logs[\\/]organ-audit\.jsonl$/,
     ];
   }
 
   private onFsEvent(rel: string, op: Op): void {
     const norm = rel.replace(/\\/g, "/");
+
+    // authoritative runtime-junk filter (deterministic, relative-path based).
+    // memory/main.sqlite is intentionally NOT in ignore → still drives dump-to-md.
+    if (this.shouldIgnore(norm)) return;
 
     // symlink escape guard: if the real path leaves the organ home, skip + audit.
     const abs = path.join(this.target.home, rel);

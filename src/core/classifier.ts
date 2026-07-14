@@ -3,7 +3,7 @@
 import type { Config, Severity, SeverityRule } from "../types.ts";
 
 // Minimal glob → RegExp: supports **, *, and literal path segments.
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   let re = "^";
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];
