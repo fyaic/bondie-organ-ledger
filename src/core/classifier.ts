@@ -36,6 +36,7 @@ export interface ClassifyResult {
   severity: Severity;
   rule: string | null;
   escalated: boolean;      // bumped to critical by rewrite ratio
+  deleteGate: boolean;     // matched rule opts this path into held-on-delete
 }
 
 export function classify(input: ClassifyInput, cfg: Config): ClassifyResult {
@@ -64,5 +65,10 @@ export function classify(input: ClassifyInput, cfg: Config): ClassifyResult {
     }
   }
 
-  return { severity, rule: matched ? matched.glob : null, escalated };
+  return {
+    severity,
+    rule: matched ? matched.glob : null,
+    escalated,
+    deleteGate: matched?.delete_gate === "held",
+  };
 }

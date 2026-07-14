@@ -126,7 +126,7 @@ export function commitMessage(tickets: Ticket[]): string {
   if (tickets.length === 1) {
     const t = tickets[0];
     const sess = t.session_id ?? "none";
-    const origin = "none";
+    const origin = t.origin ?? "none";
     const title = `[${t.change_id}][${t.system}][session:${sess}][origin:${origin}] ${t.op} ${t.file}`;
     const body =
       `reason: ${t.reason ?? "(none)"}\n` +

@@ -50,6 +50,7 @@ export function normalize(
     source: evt.source,
     author: resolveAuthor(evt.ctx),
     session_id: evt.ctx.session_id,
+    origin: evt.ctx.origin,
     file: rel,
     op: evt.op,
     before_hash,

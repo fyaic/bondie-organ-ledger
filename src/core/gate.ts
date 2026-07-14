@@ -7,13 +7,19 @@ export interface GateResult {
   reason: string;
 }
 
-export function gate(severity: Severity, op: Op, cfg: Config): GateResult {
+// `ruleDeleteGate` is the per-path SeverityRule.delete_gate signal (from the
+// classifier). It holds a delete for THIS path even when the global gate does
+// not list "delete" in held_on — the fine-grained, path-scoped delete gate.
+export function gate(severity: Severity, op: Op, cfg: Config, ruleDeleteGate = false): GateResult {
   const heldOn = cfg.gate.held_on;
   if (heldOn.includes("critical") && severity === "critical") {
     return { status: "held", reason: "severity=critical" };
   }
-  if (heldOn.includes("delete") && op === "delete") {
-    return { status: "held", reason: "op=delete" };
+  if (op === "delete" && (heldOn.includes("delete") || ruleDeleteGate)) {
+    return {
+      status: "held",
+      reason: ruleDeleteGate && !heldOn.includes("delete") ? "op=delete (rule)" : "op=delete",
+    };
   }
   return { status: "observed", reason: "default observe" };
 }

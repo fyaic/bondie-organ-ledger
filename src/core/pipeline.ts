@@ -41,8 +41,8 @@ export class Pipeline {
     );
     ticket.severity = cls.severity;
 
-    // 3. gate
-    const g = gate(ticket.severity, ticket.op, this.cfg);
+    // 3. gate (honors both the global held_on and the matched rule's delete_gate)
+    const g = gate(ticket.severity, ticket.op, this.cfg, cls.deleteGate);
     ticket.status = g.status;
 
     if (g.status === "held") {

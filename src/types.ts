@@ -37,6 +37,7 @@ export interface Ticket {
   source: Source;
   author: TicketAuthor;
   session_id: string | null;
+  origin: string | null;         // foreground|background_review|cron|user|null (from the event ctx)
   file: string;
   op: Op;
   before_hash: string | null;

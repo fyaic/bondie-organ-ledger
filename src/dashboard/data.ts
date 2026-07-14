@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { Op, OrganSystem, Severity, Status, Ticket } from "../types.ts";
-import { defaultLedgerHome, paths, readJsonl } from "../util.ts";
+import { defaultLedgerHome, localDay, paths, readJsonl } from "../util.ts";
 
 export type BoardDateFilter = "today" | "recent" | "all" | string;
 const RECENT_DAYS = 7;
@@ -24,6 +24,7 @@ export interface DashboardCard {
   status: Status;
   system: OrganSystem;
   session_id: string | null;
+  origin: string | null;
   author_verified: boolean;
   reason: string | null;
   before_hash: string | null;
@@ -102,6 +103,7 @@ function toCard(ticket: Ticket): DashboardCard {
     status: ticket.status,
     system: ticket.system,
     session_id: ticket.session_id,
+    origin: ticket.origin ?? null,
     author_verified: !!ticket.author?.verified,
     reason: ticket.reason,
     before_hash: ticket.before_hash,
@@ -166,23 +168,17 @@ function listReports(reportsDir: string): string[] {
     .slice(-7);
 }
 
-// date filter: "all" | "today" | "recent"(last 7 days) | explicit YYYY-MM-DD
+// date filter: "all" | "today" | "recent"(last 7 days) | explicit YYYY-MM-DD.
+// Calendar-day comparisons ("today" / explicit) go through the shared localDay()
+// so the board and the daily report bucket identically. "recent" is a rolling
+// absolute window by design (timezone-agnostic), not a calendar bucket.
 function matchesDate(createdAt: string, date: BoardDateFilter): boolean {
   if (date === "all") return true;
-  if (date === "today") return localDate(createdAt) === localDate(new Date().toISOString());
+  if (date === "today") return localDay(createdAt) === localDay();
   if (date === "recent") {
     const t = Date.parse(createdAt);
     if (Number.isNaN(t)) return false;
     return t >= Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000;
   }
-  return localDate(createdAt) === date; // explicit day
-}
-
-function localDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return localDay(createdAt) === date; // explicit day
 }

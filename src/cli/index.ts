@@ -3,6 +3,7 @@
 //   init | doctor | paths | reset | uninstall
 //   daemon | once | report | rollback | approve | reject | verify-ledger | status
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 
 import { loadConfigSafe, ensureDirs, defaultLedgerHome, paths, isInitialized } from "../util.ts";
 import { Daemon, liveDaemonPid } from "../core/daemon.ts";
@@ -40,6 +41,23 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
 const S = (v: string | boolean | undefined): string | undefined =>
   typeof v === "string" ? v : undefined;
 
+// Synchronous y/N prompt on the controlling TTY. Non-interactive stdin (piped /
+// CI) returns false so init never blocks — the caller then prints guidance to
+// use --yes. Kept sync so runInit stays a straight-line function.
+function promptYesNo(question: string): boolean {
+  if (!process.stdin.isTTY) return false;
+  process.stdout.write(question);
+  const buf = Buffer.alloc(64);
+  let bytes = 0;
+  try {
+    bytes = fs.readSync(0, buf, 0, buf.length, null);
+  } catch {
+    return false;
+  }
+  const ans = buf.toString("utf8", 0, bytes).trim().toLowerCase();
+  return ans === "y" || ans === "yes";
+}
+
 function openDashboard(url: string): void {
   const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
@@ -62,7 +80,10 @@ async function main(): Promise<void> {
       return;
     }
     case "init": {
-      const res = runInit({
+      // interactive only when the user neither pre-approved (--yes) nor opted out
+      // (--no-snapshot): then ask before writing a commit into the target repo.
+      const interactive = !flags["yes"] && !flags["no-snapshot"];
+      runInit({
         home,
         yes: !!flags["yes"],
         openclaw: S(flags["openclaw"]),
@@ -70,11 +91,11 @@ async function main(): Promise<void> {
         noSnapshot: !!flags["no-snapshot"],
         noBackfill: !!flags["no-backfill"],
         fullHistory: !!flags["full-history"],
+        emit: (l) => console.log(l),
+        confirmSnapshot: interactive
+          ? () => promptYesNo("\n  建立首扫水位快照？将向目标 repo 写入 1 条 scoped commit。(y/N) ")
+          : undefined,
       });
-      res.lines.forEach((l) => console.log(l));
-      if (flags["yes"] && !flags["no-autostart"]) {
-        // in --yes mode, do not surprise-install autostart; only if explicitly asked
-      }
       if (flags["autostart"]) installAutostart(S(flags["home"])).forEach((l) => console.log("  " + l));
       return;
     }

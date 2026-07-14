@@ -2,7 +2,7 @@
 // Cross-platform by construction (unified ticket schema → one report).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { paths, readJsonl, todayStamp, gitSafe } from "../util.ts";
+import { paths, readJsonl, localDay, gitSafe } from "../util.ts";
 import type { Config, Ticket } from "../types.ts";
 
 export function buildReport(cfg: Config, dateArg: string): { md: string; outPath: string } {
@@ -89,16 +89,8 @@ export function buildReport(cfg: Config, dateArg: string): { md: string; outPath
 }
 
 function resolveDay(arg: string): string {
-  if (!arg || arg === "today") return localDay(new Date().toISOString());
+  if (!arg || arg === "today") return localDay();
   return arg;
-}
-
-// local-timezone YYYY-MM-DD of an ISO instant (keeps report aligned with the
-// change_id day bucket, which also uses local time).
-function localDay(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return (iso || "").slice(0, 10);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function readHeld(heldDir: string): Ticket[] {

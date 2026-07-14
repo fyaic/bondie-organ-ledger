@@ -35,12 +35,28 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function todayStamp(d: Date = new Date()): string {
-  // YYYYMMDD in local time (change_id day bucket)
+// ---- day buckets (single source of truth) --------------------------------
+// CONVENTION: `created_at` stores the absolute instant as a UTC ISO string, but
+// every "which day did this belong to" decision — change_id buckets, daily
+// reports, and the dashboard "today"/explicit-day filters — is made in the
+// operator's LOCAL calendar day. Route ALL day comparisons through localDay()
+// so report and dashboard can never drift apart on a DST/timezone boundary.
+// (The dashboard "recent" filter is deliberately a rolling absolute window, not
+// a calendar bucket, so it stays timezone-agnostic.)
+export function localDay(value: string | Date = new Date()): string {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return typeof value === "string" ? value.slice(0, 10) : "";
+  }
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  return `${y}${m}${day}`;
+  return `${y}-${m}-${day}`;
+}
+
+export function todayStamp(d: Date = new Date()): string {
+  // YYYYMMDD in local time (change_id day bucket) — same local calendar day as localDay().
+  return localDay(d).replace(/-/g, "");
 }
 
 export function expandHome(p: string): string {

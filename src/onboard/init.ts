@@ -41,6 +41,12 @@ export interface InitOptions {
   noSnapshot?: boolean;
   noBackfill?: boolean;   // skip historical git-history backfill
   fullHistory?: boolean;  // backfill ALL history (default: last 90 days)
+  // live-print each line as it's produced (so an interactive prompt lands AFTER
+  // the preceding steps are shown). Lines are still returned in the result too.
+  emit?: (line: string) => void;
+  // interactive gate for the first-scan snapshot: return true to snapshot. Only
+  // consulted when neither --yes nor --no-snapshot is set. Absent → skip.
+  confirmSnapshot?: () => boolean;
 }
 
 export interface InitResult {
@@ -185,26 +191,32 @@ export function firstScanSnapshot(t: Target): string[] {
 export function runInit(opts: InitOptions): InitResult {
   const home = expandHome(opts.home);
   const lines: string[] = [];
-  lines.push("OrganLedger init");
-  lines.push("================");
+  const push = (...ls: string[]) => {
+    for (const l of ls) {
+      lines.push(l);
+      opts.emit?.(l);
+    }
+  };
+  push("OrganLedger init");
+  push("================");
 
   // Step 1: detect
   const det = detectEnvironment({ openclaw: opts.openclaw, hermes: opts.hermes });
-  lines.push(`\n[1/7] Environment`);
-  lines.push(`  node ${det.nodeVersion} ${det.nodeOk ? "✓" : "✗ (need ≥24)"}  |  git ${det.gitVersion ?? "MISSING"}`);
-  for (const t of det.targets) lines.push(`  ${t.system}: ${t.note}`);
+  push(`\n[1/7] Environment`);
+  push(`  node ${det.nodeVersion} ${det.nodeOk ? "✓" : "✗ (need ≥24)"}  |  git ${det.gitVersion ?? "MISSING"}`);
+  for (const t of det.targets) push(`  ${t.system}: ${t.note}`);
 
   // Step 2: config (generate or merge)
   const existing = loadConfigSafe(home);
   const cfg = buildConfig(home, det, existing);
-  lines.push(`\n[2/7] Config`);
-  lines.push(`  ${existing ? "merged with existing" : "generated"} config.json — ${cfg.targets.length} target(s): ${cfg.targets.map((t) => t.system).join(", ") || "(none usable yet)"}`);
+  push(`\n[2/7] Config`);
+  push(`  ${existing ? "merged with existing" : "generated"} config.json — ${cfg.targets.length} target(s): ${cfg.targets.map((t) => t.system).join(", ") || "(none usable yet)"}`);
 
   // Step 3: dirs + migrate + version
   ensureDirs(home);
-  lines.push(`\n[3/7] Layout`);
+  push(`\n[3/7] Layout`);
   const mig = migrateLayout(home);
-  lines.push(mig.migrated
+  push(mig.migrated
     ? `  migrated v1→v2 (tickets ${mig.ticketsBefore}→${mig.ticketsAfter}, backup ${mig.backup})`
     : `  layout v2 ready (${mig.reason})`);
   writeVersion(home);
@@ -214,45 +226,52 @@ export function runInit(opts: InitOptions): InitResult {
   // Step 4: historical backfill — replay target git history into the ledger so the
   // dashboard shows organ evolution instead of a blank slate. Read-only on target;
   // idempotent (skips commits already recorded). author.verified stays false.
-  lines.push(`\n[4/7] History backfill`);
+  push(`\n[4/7] History backfill`);
   if (opts.noBackfill) {
-    lines.push(`  skipped (--no-backfill)`);
+    push(`  skipped (--no-backfill)`);
   } else {
     const ledger = new Ledger(home);
     for (const t of cfg.targets) {
       if (!t.git) {
-        lines.push(`  ${t.system}: not a git repo — no history to backfill`);
+        push(`  ${t.system}: not a git repo — no history to backfill`);
         continue;
       }
       const r = backfillFromGitHistory(t, ledger, cfg, { fullHistory: opts.fullHistory });
       const span = r.earliest && r.latest ? `  [${r.earliest.slice(0, 10)} → ${r.latest.slice(0, 10)}]` : "";
-      lines.push(`  ${t.system}: ${r.note}${span}`);
+      push(`  ${t.system}: ${r.note}${span}`);
     }
     // RED LINE: backfill must not break the hash chain
     const v = new Ledger(home).verify();
-    lines.push(`  chain: ${v.ok ? "intact ✓" : "BROKEN@" + v.brokenIndex + " ✗"} (${v.detail})`);
+    push(`  chain: ${v.ok ? "intact ✓" : "BROKEN@" + v.brokenIndex + " ✗"} (${v.detail})`);
   }
 
-  // Step 5: first-scan water line
-  lines.push(`\n[5/7] First-scan water line`);
+  // Step 5: first-scan water line. Writes ONE scoped commit per git target, so it
+  // is gated: --yes snapshots non-interactively, --no-snapshot skips, otherwise
+  // confirmSnapshot() (an interactive y/N) decides. No callback → skip (safe default).
+  push(`\n[5/7] First-scan water line`);
+  const doSnapshot =
+    opts.noSnapshot ? false
+    : opts.yes ? true
+    : opts.confirmSnapshot ? opts.confirmSnapshot()
+    : false;
   if (opts.noSnapshot) {
-    lines.push(`  skipped (--no-snapshot)`);
-  } else if (!opts.yes) {
-    lines.push(`  (interactive confirm skipped in this build; pass --yes to snapshot, or run later)`);
+    push(`  skipped (--no-snapshot)`);
+  } else if (doSnapshot) {
+    for (const t of cfg.targets) push(...firstScanSnapshot(t));
   } else {
-    for (const t of cfg.targets) lines.push(...firstScanSnapshot(t));
+    push(`  skipped — no snapshot taken. Re-run 'organledger init' and answer y, or pass --yes.`);
   }
 
   // Step 6: self-check (lightweight; full report via `doctor`)
-  lines.push(`\n[6/7] Self-check`);
+  push(`\n[6/7] Self-check`);
   const log = getLogger(home, cfg.log_level ?? "info");
   log.info("init", `initialized layout v2, ${cfg.targets.length} target(s)`);
-  lines.push(`  logs → ${paths(home).logs}  |  run 'organledger doctor' for full health report`);
+  push(`  logs → ${paths(home).logs}  |  run 'organledger doctor' for full health report`);
 
   // Step 7: finish
-  lines.push(`\n[7/7] Done ✅  organledger v${ORGANLEDGER_VERSION}`);
-  lines.push(`  Next: 'organledger daemon' to start governing.`);
-  lines.push(`  'organledger paths' shows where everything lives.`);
+  push(`\n[7/7] Done ✅  organledger v${ORGANLEDGER_VERSION}`);
+  push(`  Next: 'organledger daemon' to start governing.`);
+  push(`  'organledger paths' shows where everything lives.`);
 
   return { lines, configPath: paths(home).config };
 }

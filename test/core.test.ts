@@ -95,6 +95,18 @@ test("create → ticket(verified:false) + commit + chain intact", async () => {
   assert.equal(d.ledger.verify().ok, true);
 });
 
+test("origin flows from event ctx into the ticket", async () => {
+  const { cfg, organHome, ledgerHome } = makeEnv();
+  const d = new Daemon(cfg);
+  writeOrgan(organHome, "skills/o/SKILL.md", "x\n");
+  const e = evt("openclaw", "skills/o/SKILL.md", "create", "sess-o");
+  e.ctx.origin = "foreground";
+  d.inbox.appendEvent(e);
+  await d.runToIdle();
+  const tickets = readJsonl<Ticket>(path.join(ledgerHome, "ledger", "tickets.jsonl"));
+  assert.equal(tickets[tickets.length - 1].origin, "foreground");
+});
+
 test("debounce: same file 2 writes → 1 commit", async () => {
   const { cfg, organHome } = makeEnv();
   const d = new Daemon(cfg);

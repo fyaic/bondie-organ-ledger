@@ -83,3 +83,24 @@ test("gate: default observe; critical & delete → held", () => {
   assert.equal(gate("high", "delete", cfg).status, "held");
   assert.equal(gate("low", "delete", cfg).status, "held"); // any delete held
 });
+
+test("classify surfaces per-rule delete_gate", () => {
+  assert.equal(classify({ path: "skills/note/SKILL.md", op: "delete" }, cfg).deleteGate, true);
+  assert.equal(classify({ path: "agents/AGENTS.md", op: "delete" }, cfg).deleteGate, false);
+  assert.equal(classify({ path: "random/thing.txt", op: "delete" }, cfg).deleteGate, false);
+});
+
+test("gate: rule-level delete_gate holds a delete even when global held_on omits 'delete'", () => {
+  // global gate does NOT hold deletes; only per-path delete_gate should
+  const noGlobalDelete: Config = { ...cfg, gate: { default: "observe", held_on: ["critical"] } };
+
+  // skills/** has delete_gate:"held" → held even though the global gate wouldn't
+  const skills = classify({ path: "skills/note/SKILL.md", op: "delete" }, noGlobalDelete);
+  const gSkills = gate("high", "delete", noGlobalDelete, skills.deleteGate);
+  assert.equal(gSkills.status, "held");
+  assert.equal(gSkills.reason, "op=delete (rule)");
+
+  // tasks/** has no delete_gate → observed (global gate omits delete)
+  const tasks = classify({ path: "tasks/runs/x.json", op: "delete" }, noGlobalDelete);
+  assert.equal(gate("low", "delete", noGlobalDelete, tasks.deleteGate).status, "observed");
+});

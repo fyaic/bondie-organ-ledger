@@ -15,6 +15,7 @@ OrganLedger 站在 OpenClaw / Hermes 之外，把每次器官改动自动记成*
 npm install
 
 # 2) 一键 onboard —— 探测你的 OpenClaw/Hermes、生成配置、建目录、设首扫水位、自检。全程零手写 JSON
+#    首扫水位会往 target repo 写 1 条 scoped commit，交互模式下会先 y/N 询问（--yes 免询问，--no-snapshot 跳过）
 node src/cli/index.ts init
 
 # 3) 开始治理 —— 挂后台常驻，Agent 一改器官文件就自动记账（生成变更单 + git commit + 哈希链账本）
@@ -70,6 +71,7 @@ node src/cli/index.ts daemon      # 开始治理
 `init` 七步：环境探测 → 生成/合并 `config.json` → 建 v2 分区目录 + `VERSION` → （旧布局则）无损迁移 →
 **历史回填**（把 target git 历史回放成 ticket，装上即有纵深，见下）→
 首扫水位（写 target `.gitignore` + scoped 快照，排除运行期 churn/密钥/大二进制/内嵌仓库/memory 二进制 sqlite）→ 自检。
+首扫水位会向 target repo 写 1 条 commit：交互模式先 `y/N` 询问，`--yes` 免询问直接建，`--no-snapshot` 跳过（可日后再 `init`）。
 非交互：`init --yes [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--autostart]`。**幂等**：重复 `init` 安全。
 
 ### 历史回填（新装即有纵深，不再空看板）

@@ -167,6 +167,7 @@ export function backfillFromGitHistory(
           verified: false,
         },
         session_id: `git:${sha.slice(0, 12)}`, // one commit → one squash group
+        origin: null,                          // historical commit — no origin signal
         file: rel,
         op,
         before_hash: op === "create" || ZERO_SHA.test(oldSha) ? null : `git:${oldSha}`,
