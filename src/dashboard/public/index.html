@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN" class="ol-light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OrganLedger Dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <script>
+      document.documentElement.className = "ol-" + (localStorage.getItem("ol-theme") || "__DEFAULT_THEME__");
+    </script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">OrganLedger</p>
+          <h1>审计看板</h1>
+        </div>
+        <div class="toolbar">
+          <div class="segmented" role="group" aria-label="看板视图">
+            <button class="active" type="button" data-view="status">状态</button>
+            <button type="button" data-view="severity">严重度</button>
+          </div>
+          <select id="dateFilter" aria-label="日期">
+            <option value="recent">近 7 天</option>
+            <option value="today">今日</option>
+            <option value="all">全部</option>
+          </select>
+          <select id="systemFilter" aria-label="系统">
+            <option value="all">全部系统</option>
+            <option value="openclaw">OpenClaw</option>
+            <option value="hermes">Hermes</option>
+          </select>
+          <select id="severityFilter" aria-label="严重度">
+            <option value="all">全部等级</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <input id="queryFilter" type="search" placeholder="文件或 change id" />
+          <button id="refreshButton" type="button">刷新</button>
+          <label class="switch">
+            <input id="pollToggle" type="checkbox" />
+            <span>轮询</span>
+          </label>
+          <button id="themeButton" type="button">暗色</button>
+        </div>
+      </header>
+
+      <section id="status" class="status loading">加载审计数据...</section>
+
+      <section class="kpi-grid" aria-label="概览">
+        <article class="kpi-card held">
+          <span>待确认</span>
+          <strong id="kpiHeld">0</strong>
+        </article>
+        <article class="kpi-card">
+          <span>改动数</span>
+          <strong id="kpiTotal">0</strong>
+        </article>
+        <article class="kpi-card">
+          <span>涉及文件</span>
+          <strong id="kpiFiles">0</strong>
+        </article>
+        <article class="kpi-card wide">
+          <span>严重度</span>
+          <div id="severityDots" class="dot-row"></div>
+          <span class="kpi-sub">系统</span>
+          <div id="systemDots" class="dot-row"></div>
+        </article>
+      </section>
+
+      <section id="reportsBar" class="reports-bar" aria-label="近期日报" hidden></section>
+
+      <section id="board" class="board" aria-label="看板"></section>
+    </main>
+
+    <aside id="drawer" class="drawer" aria-hidden="true">
+      <button id="drawerClose" class="drawer-close" type="button" aria-label="关闭">x</button>
+      <div id="drawerBody"></div>
+    </aside>
+    <div id="overlay" class="overlay" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="/dashboard.js" type="module"></script>
+  </body>
+</html>

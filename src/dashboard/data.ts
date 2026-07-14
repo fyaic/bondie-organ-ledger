@@ -1,0 +1,188 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import type { Op, OrganSystem, Severity, Status, Ticket } from "../types.ts";
+import { defaultLedgerHome, paths, readJsonl } from "../util.ts";
+
+export type BoardDateFilter = "today" | "recent" | "all" | string;
+const RECENT_DAYS = 7;
+export type BoardSystemFilter = "all" | OrganSystem;
+export type BoardSeverityFilter = "all" | Severity;
+
+export interface BoardFilters {
+  date?: BoardDateFilter;
+  system?: BoardSystemFilter;
+  severity?: BoardSeverityFilter;
+  q?: string;
+}
+
+export interface DashboardCard {
+  change_id: string;
+  file: string;
+  op: Op;
+  severity: Severity;
+  status: Status;
+  system: OrganSystem;
+  session_id: string | null;
+  author_verified: boolean;
+  reason: string | null;
+  before_hash: string | null;
+  after_hash: string | null;
+  git_commit: string | null;
+  created_at: string;
+}
+
+export interface BoardResponse {
+  kpi: {
+    date: string;
+    total: number;
+    held: number;
+    severity: Record<Severity, number>;
+    files: number;
+    systems: Record<OrganSystem, number>;
+    reports: string[];
+  };
+  columns: Record<Status, DashboardCard[]>;
+  generated_at: string;
+}
+
+const STATUSES: Status[] = ["held", "observed", "approved", "rejected", "rolled_back"];
+const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
+const SYSTEMS: OrganSystem[] = ["openclaw", "hermes"];
+
+export function loadBoard(filters: BoardFilters = {}, ledgerHome = defaultLedgerHome()): BoardResponse {
+  const p = paths(ledgerHome);
+  const tickets = readJsonl<Ticket>(p.tickets);
+  const heldTickets = readHeldTickets(p.held);
+  const byId = new Map<string, Ticket>();
+
+  for (const ticket of [...tickets, ...heldTickets]) {
+    if (!ticket?.change_id) continue;
+    byId.set(ticket.change_id, ticket);
+  }
+
+  const cards = Array.from(byId.values())
+    .slice(-500)
+    .map(toCard)
+    .filter((card) => matchesFilters(card, filters))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+
+  return {
+    kpi: buildKpi(cards, filters, p.reports),
+    columns: buildColumns(cards),
+    generated_at: new Date().toISOString(),
+  };
+}
+
+function readHeldTickets(heldDir: string): Ticket[] {
+  if (!fs.existsSync(heldDir)) return [];
+  const files = fs.readdirSync(heldDir).filter((name) => name.endsWith(".json"));
+  const tickets: Ticket[] = [];
+
+  for (const file of files) {
+    const fullPath = path.join(heldDir, file);
+    try {
+      const parsed = JSON.parse(fs.readFileSync(fullPath, "utf8")) as Ticket | { ticket?: Ticket };
+      const ticket = "ticket" in parsed && parsed.ticket ? parsed.ticket : (parsed as Ticket);
+      if (ticket?.change_id) tickets.push({ ...ticket, status: "held" });
+    } catch {
+      // Ignore malformed held files; the dashboard should stay available.
+    }
+  }
+
+  return tickets;
+}
+
+function toCard(ticket: Ticket): DashboardCard {
+  return {
+    change_id: ticket.change_id,
+    file: ticket.file,
+    op: ticket.op,
+    severity: ticket.severity,
+    status: ticket.status,
+    system: ticket.system,
+    session_id: ticket.session_id,
+    author_verified: !!ticket.author?.verified,
+    reason: ticket.reason,
+    before_hash: ticket.before_hash,
+    after_hash: ticket.after_hash,
+    git_commit: ticket.git_commit,
+    created_at: ticket.created_at,
+  };
+}
+
+function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
+  const date = filters.date || "recent";
+  const system = filters.system || "all";
+  const severity = filters.severity || "all";
+  const q = (filters.q || "").trim().toLowerCase();
+
+  if (!matchesDate(card.created_at, date)) return false;
+  if (system !== "all" && card.system !== system) return false;
+  if (severity !== "all" && card.severity !== severity) return false;
+  if (q && !card.file.toLowerCase().includes(q) && !card.change_id.toLowerCase().includes(q)) return false;
+  return true;
+}
+
+function buildColumns(cards: DashboardCard[]): Record<Status, DashboardCard[]> {
+  const columns: Record<Status, DashboardCard[]> = {
+    held: [],
+    observed: [],
+    approved: [],
+    rejected: [],
+    rolled_back: [],
+  };
+  for (const card of cards) columns[card.status].push(card);
+  return columns;
+}
+
+function buildKpi(cards: DashboardCard[], filters: BoardFilters, reportsDir: string): BoardResponse["kpi"] {
+  const severity = Object.fromEntries(SEVERITIES.map((key) => [key, 0])) as Record<Severity, number>;
+  const systems = Object.fromEntries(SYSTEMS.map((key) => [key, 0])) as Record<OrganSystem, number>;
+  const files = new Set<string>();
+
+  for (const card of cards) {
+    severity[card.severity]++;
+    systems[card.system]++;
+    files.add(card.file);
+  }
+
+  return {
+    date: filters.date || "recent",
+    total: cards.length,
+    held: cards.filter((card) => card.status === "held").length,
+    severity,
+    files: files.size,
+    systems,
+    reports: listReports(reportsDir),
+  };
+}
+
+function listReports(reportsDir: string): string[] {
+  if (!fs.existsSync(reportsDir)) return [];
+  return fs.readdirSync(reportsDir)
+    .filter((name) => name.endsWith(".md"))
+    .sort()
+    .slice(-7);
+}
+
+// date filter: "all" | "today" | "recent"(last 7 days) | explicit YYYY-MM-DD
+function matchesDate(createdAt: string, date: BoardDateFilter): boolean {
+  if (date === "all") return true;
+  if (date === "today") return localDate(createdAt) === localDate(new Date().toISOString());
+  if (date === "recent") {
+    const t = Date.parse(createdAt);
+    if (Number.isNaN(t)) return false;
+    return t >= Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000;
+  }
+  return localDate(createdAt) === date; // explicit day
+}
+
+function localDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}

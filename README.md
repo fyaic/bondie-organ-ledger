@@ -94,7 +94,22 @@ organledger approve <change_id>               # held → replay commit
 organledger reject  <change_id>               # 丢弃 held
 organledger verify-ledger                     # 校验哈希链完整性
 organledger status                            # 快速摘要
+organledger dashboard [--port 7377] [--theme light|dark] [--open]  # 本地只读审计看板
 ```
+
+## 审计看板（本地只读，Creme brulee 风格）
+
+```bash
+organledger dashboard            # → http://localhost:7377（只读，仅 127.0.0.1）
+```
+
+把审计结果可视化成看板：**按 status 分列**（待确认 / 已观测 / 已批准 / 已拒绝 / 已回滚），
+卡片按 severity 左色条，**待确认列 terracotta 聚光**；顶部 KPI（待确认 / 改动数 / 涉及文件 / 严重度 / 系统分布）+ 近期日报；
+点卡片看细节抽屉（reason / hash / commit / session / author 未验证）；筛选（近7天·今日·全部 / 系统 / 严重度 / 关键字）；亮暗双模。
+
+- **只读铁律**（架构级）：看板**绝不写 git / 账本 / daemon 锁**，只 `fs.readFile` 审计数据。approve/reject 只"复制命令供终端执行"，不直接改写（守住唯一 committer）。
+- **零依赖零构建**：`node:http` + 原生 HTML/CSS/JS 单页（`src/dashboard/public/`）。视觉令牌取自 Obsidian 主题 Creme brulee（暖米底 / 暖棕字 / terracotta 强调 / 衬线标题 / 软圆角）。
+- 默认视图 `近 7 天`（器官改动稀疏，避免"今日"默认空白）。
 
 ## 源码目录
 
@@ -104,13 +119,14 @@ src/
 ├── adapters/openclaw/  watcher organ-audit sqlite-dump
 ├── adapters/hermes/    shim.py
 ├── onboard/  init detect migrate logger doctor lifecycle autostart   # Phase 1.5
+├── dashboard/  server data public/(index.html dashboard.css dashboard.js)  # 本地只读看板
 └── cli/      index report rollback approve
 ```
 
 ## 测试
 
 ```bash
-node --test test/*.test.ts        # 25 个：核心 + classifier + hermes 跨语言 + onboarding(迁移/logger/paths v2)
+node --test test/*.test.ts        # 29 个：核心 + classifier + hermes 跨语言 + onboarding(迁移/logger/paths v2) + dashboard(列映射/KPI/筛选)
 python -m pytest test/test_hermes_shim.py   # 2 个：shim schema 同构
 npm run typecheck                  # tsc --noEmit
 ```

@@ -2,6 +2,8 @@
 // organledger CLI. Minimal argv parsing (no heavy deps).
 //   init | doctor | paths | reset | uninstall
 //   daemon | once | report | rollback | approve | reject | verify-ledger | status
+import { spawn } from "node:child_process";
+
 import { loadConfigSafe, ensureDirs, defaultLedgerHome, paths, isInitialized } from "../util.ts";
 import { Daemon, liveDaemonPid } from "../core/daemon.ts";
 import { OpenClawWatcher } from "../adapters/openclaw/watcher.ts";
@@ -13,6 +15,7 @@ import { runInit } from "../onboard/init.ts";
 import { runDoctor } from "../onboard/doctor.ts";
 import { printPaths, runReset, runUninstall } from "../onboard/lifecycle.ts";
 import { installAutostart } from "../onboard/autostart.ts";
+import { startDashboardServer } from "../dashboard/server.ts";
 import type { Config } from "../types.ts";
 
 function parseFlags(argv: string[]): Record<string, string | boolean> {
@@ -36,6 +39,13 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
 const S = (v: string | boolean | undefined): string | undefined =>
   typeof v === "string" ? v : undefined;
 
+function openDashboard(url: string): void {
+  const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const child = spawn(command, args, { detached: true, stdio: "ignore" });
+  child.unref();
+}
+
 async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
@@ -43,6 +53,13 @@ async function main(): Promise<void> {
 
   // ---- commands that do NOT require an existing config ----
   switch (cmd) {
+    case "dashboard": {
+      const port = Number(S(flags["port"]) || "7377") || 7377;
+      const theme = S(flags["theme"]) === "dark" ? "dark" : "light";
+      await startDashboardServer({ port, theme, ledgerHome: home });
+      if (flags["open"]) openDashboard(`http://localhost:${port}`);
+      return;
+    }
     case "init": {
       const res = runInit({
         home,
@@ -152,6 +169,7 @@ function printHelp(home: string): void {
     "  reset [--keep-audit(default) | --all --confirm]",
     "  uninstall                  stop guidance + remove autostart (keeps your data)",
     "  autostart                  install login autostart (Windows Scheduled Task)",
+    "  dashboard [--port 7377] [--theme light|dark] [--open]",
     "",
     "  daemon                     start consumer + OpenClaw watcher (single instance)",
     "  once                       drain inbox + flush commits, then exit",
