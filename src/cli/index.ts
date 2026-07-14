@@ -2,8 +2,8 @@
 // organledger CLI. Minimal argv parsing (no heavy deps).
 //   daemon | once | report [--date] | rollback --change|--session|--before [--confirm]
 //   approve <id> | reject <id> | verify-ledger | status
-import { loadConfig, ensureDirs, defaultLedgerHome } from "../util.ts";
-import { Daemon } from "../core/daemon.ts";
+import { loadConfig, ensureDirs, defaultLedgerHome, paths } from "../util.ts";
+import { Daemon, liveDaemonPid } from "../core/daemon.ts";
 import { OpenClawWatcher } from "../adapters/openclaw/watcher.ts";
 import { buildReport } from "./report.ts";
 import { rollback } from "./rollback.ts";
@@ -47,6 +47,7 @@ async function main(): Promise<void> {
       return;
     }
     case "rollback": {
+      if (guardSingleWriter(cfg)) return;
       const out = rollback(cfg, {
         change: flags["change"] as string | undefined,
         session: flags["session"] as string | undefined,
@@ -57,9 +58,11 @@ async function main(): Promise<void> {
       return;
     }
     case "approve":
+      if (guardSingleWriter(cfg)) return;
       approve(cfg, rest[0]).forEach((l) => console.log(l));
       return;
     case "reject":
+      if (guardSingleWriter(cfg)) return;
       reject(cfg, rest[0]).forEach((l) => console.log(l));
       return;
     case "verify-ledger": {
@@ -91,6 +94,20 @@ async function main(): Promise<void> {
         ].join("\n")
       );
   }
+}
+
+// enforce the single-writer invariant for ledger/git-mutating commands.
+function guardSingleWriter(cfg: Config): boolean {
+  const pid = liveDaemonPid(paths(cfg.ledger_home).lock);
+  if (pid) {
+    console.error(
+      `[organledger] a daemon (pid ${pid}) is running and is the single ledger/git writer.\n` +
+        `Stop it before approve/reject/rollback (Ctrl-C the daemon), then retry.\n` +
+        `This prevents concurrent writers from corrupting the hash chain.`
+    );
+    return true; // blocked
+  }
+  return false;
 }
 
 async function runDaemon(cfg: Config): Promise<void> {

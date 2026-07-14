@@ -100,3 +100,16 @@ function isAlive(pid: number): boolean {
     return (e as NodeJS.ErrnoException).code === "EPERM"; // exists but not ours
   }
 }
+
+// A live daemon is the single writer of git + ledger. Mutating CLI commands
+// (approve/reject/rollback) MUST NOT run concurrently, or independent in-memory
+// hash chains corrupt the ledger. Returns the owning pid, or 0 if none live.
+export function liveDaemonPid(lockPath: string): number {
+  try {
+    const pid = parseInt(fs.readFileSync(lockPath, "utf8").trim(), 10);
+    if (pid && isAlive(pid)) return pid;
+  } catch {
+    /* no lock */
+  }
+  return 0;
+}
