@@ -12,6 +12,7 @@ OrganLedger 站在 OpenClaw / Hermes 之外，把每次器官改动自动记成*
 ## 🚀 快速开始（新用户从这里）
 
 > 需要 **Node ≥ 24**（用原生 TS type-strip 直接跑 `.ts`，无构建步骤）。`node -v` 先确认。
+> 贡献 / 本机实测的最佳实践（数据隔离、`--home` 验收、看板进程管理、提交陷阱）见 [`DEV-README.md`](DEV-README.md)。
 
 ```bash
 # 0) 装依赖 + 安装 CLI 命令 —— 一次即可，之后全局用 `organledger xxx`
