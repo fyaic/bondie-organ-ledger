@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import type { Attribution, Op, OrganSystem, Provenance, Severity, Status, Ticket } from "../types.ts";
 import { defaultLedgerHome, localDay, paths, readJsonl } from "../util.ts";
 
@@ -44,47 +41,6 @@ export interface DashboardCard {
   attribution: Attribution | null; // principal dimension (who caused it); null = untagged (treated as unknown)
 }
 
-export interface BoardResponse {
-  kpi: {
-    date: string;
-    total: number;
-    held: number;
-    severity: Record<Severity, number>;
-    files: number;
-    systems: Record<OrganSystem, number>;
-    reports: string[];
-  };
-  columns: Record<Status, DashboardCard[]>;
-  generated_at: string;
-}
-
-const STATUSES: Status[] = ["held", "observed", "approved", "rejected", "rolled_back"];
-const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
-const SYSTEMS: OrganSystem[] = ["openclaw", "hermes"];
-
-export function loadBoard(filters: BoardFilters = {}, ledgerHome = defaultLedgerHome()): BoardResponse {
-  const p = paths(ledgerHome);
-  const tickets = readJsonl<Ticket>(p.tickets);
-  const heldTickets = readHeldTickets(p.held);
-  const byId = new Map<string, Ticket>();
-
-  for (const ticket of [...tickets, ...heldTickets]) {
-    if (!ticket?.change_id) continue;
-    byId.set(ticket.change_id, ticket);
-  }
-
-  const cards = Array.from(byId.values())
-    .slice(-500)
-    .map(toCard)
-    .filter((card) => matchesFilters(card, filters))
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-
-  return {
-    kpi: buildKpi(cards, filters, p.reports),
-    columns: buildColumns(cards),
-    generated_at: new Date().toISOString(),
-  };
-}
 
 // ---- attribution stats (`organledger attribution --stats`) ----------------
 // Honest distribution over the principal axis. Un-attributed tickets are counted
@@ -131,25 +87,6 @@ export function buildAttributionStats(
   }
   delete (byKind as Record<string, number>)["all"];
   return { total: cards.length, byKind, byChannel, byMatch, verifiedAttested, requested, date: filters.date || "all" };
-}
-
-function readHeldTickets(heldDir: string): Ticket[] {
-  if (!fs.existsSync(heldDir)) return [];
-  const files = fs.readdirSync(heldDir).filter((name) => name.endsWith(".json"));
-  const tickets: Ticket[] = [];
-
-  for (const file of files) {
-    const fullPath = path.join(heldDir, file);
-    try {
-      const parsed = JSON.parse(fs.readFileSync(fullPath, "utf8")) as Ticket | { ticket?: Ticket };
-      const ticket = "ticket" in parsed && parsed.ticket ? parsed.ticket : (parsed as Ticket);
-      if (ticket?.change_id) tickets.push({ ...ticket, status: "held" });
-    } catch {
-      // Ignore malformed held files; the dashboard should stay available.
-    }
-  }
-
-  return tickets;
 }
 
 export function toCard(ticket: Ticket): DashboardCard {
@@ -199,61 +136,6 @@ function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
   if (principal !== "all" && principalKindOf(card) !== principal) return false;
   if (q && !card.file.toLowerCase().includes(q) && !card.change_id.toLowerCase().includes(q)) return false;
   return true;
-}
-
-// Load the GitSource map written by `organledger provenance` / `doctor`. The
-// dashboard NEVER runs git — it only reads this file (architectural red line).
-// Returns { missing:true } when the file isn't there yet so the UI can prompt.
-export function loadProvenance(ledgerHome = defaultLedgerHome()): { missing: boolean; report: unknown } {
-  const file = paths(ledgerHome).provenance;
-  if (!fs.existsSync(file)) return { missing: true, report: null };
-  try {
-    return { missing: false, report: JSON.parse(fs.readFileSync(file, "utf8")) };
-  } catch {
-    return { missing: true, report: null };
-  }
-}
-
-function buildColumns(cards: DashboardCard[]): Record<Status, DashboardCard[]> {
-  const columns: Record<Status, DashboardCard[]> = {
-    held: [],
-    observed: [],
-    approved: [],
-    rejected: [],
-    rolled_back: [],
-  };
-  for (const card of cards) columns[card.status].push(card);
-  return columns;
-}
-
-function buildKpi(cards: DashboardCard[], filters: BoardFilters, reportsDir: string): BoardResponse["kpi"] {
-  const severity = Object.fromEntries(SEVERITIES.map((key) => [key, 0])) as Record<Severity, number>;
-  const systems = Object.fromEntries(SYSTEMS.map((key) => [key, 0])) as Record<OrganSystem, number>;
-  const files = new Set<string>();
-
-  for (const card of cards) {
-    severity[card.severity]++;
-    systems[card.system]++;
-    files.add(card.file);
-  }
-
-  return {
-    date: filters.date || "recent",
-    total: cards.length,
-    held: cards.filter((card) => card.status === "held").length,
-    severity,
-    files: files.size,
-    systems,
-    reports: listReports(reportsDir),
-  };
-}
-
-function listReports(reportsDir: string): string[] {
-  if (!fs.existsSync(reportsDir)) return [];
-  return fs.readdirSync(reportsDir)
-    .filter((name) => name.endsWith(".md"))
-    .sort()
-    .slice(-7);
 }
 
 // date filter: "all" | "today" | "recent"(last 7 days) | explicit YYYY-MM-DD.

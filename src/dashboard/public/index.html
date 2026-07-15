@@ -19,8 +19,7 @@
           <h1>审计看板</h1>
         </div>
         <nav class="segmented topnav" role="group" aria-label="视图">
-          <button class="active" type="button" data-topview="board">看板</button>
-          <button type="button" data-topview="activity">日志</button>
+          <button class="active" type="button" data-topview="activity">日志</button>
           <button type="button" data-topview="heatmap">文件树</button>
         </nav>
         <div class="topbar-actions">
@@ -35,44 +34,6 @@
 
       <!-- ===== TIER 2: contextual controls — swaps per view, fixed-height bar ===== -->
       <div class="subbar" aria-label="视图控件">
-        <!-- board-only controls -->
-        <div id="boardControls" class="controls-group">
-          <div class="segmented" role="group" aria-label="看板视图">
-            <button class="active" type="button" data-view="status">状态</button>
-            <button type="button" data-view="severity">严重度</button>
-          </div>
-          <select id="dateFilter" aria-label="日期">
-            <option value="recent">近 7 天</option>
-            <option value="today">今日</option>
-            <option value="all">全部</option>
-          </select>
-          <select id="systemFilter" aria-label="系统">
-            <option value="all">全部系统</option>
-            <option value="openclaw">OpenClaw</option>
-            <option value="hermes">Hermes</option>
-          </select>
-          <select id="severityFilter" aria-label="严重度">
-            <option value="all">全部等级</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-          <select id="provenanceFilter" aria-label="来源" title="来源：改动从哪来 —— 上游拉取 vs 本地改动（git 可验证）">
-            <option value="all">全部来源</option>
-            <option value="upstream">上游更新</option>
-            <option value="agent">本地改动</option>
-          </select>
-          <select id="principalFilter" aria-label="修改者" title="修改者：谁改的 —— IM 用户 / agent / 本机（多不可验证）">
-            <option value="all">修改者</option>
-            <option value="im-user">IM 用户请求</option>
-            <option value="autonomous">agent 自主</option>
-            <option value="local">本机</option>
-            <option value="unknown">未知</option>
-          </select>
-          <input id="queryFilter" type="search" placeholder="文件或 change id" />
-        </div>
-
         <!-- activity-only controls -->
         <div id="activityControls" class="controls-group" hidden>
           <span class="subbar-label">时间窗</span>
@@ -102,42 +63,8 @@
         </div>
       </div>
 
-      <!-- ===== 看板 view ===== -->
-      <!-- shown only when the 修改者 filter = 本机: honest scope note -->
-      <div id="principalNote" class="principal-note" hidden>
-        🖥️ <strong>本机</strong>：只能判定这些改动来自<strong>本设备</strong>——无法区分是你（user）本人，还是本机上运行的某个智能体（CC / agent）所改。
-      </div>
-      <section id="status" class="status loading" data-viewgroup="board">加载审计数据...</section>
-
-      <section class="kpi-grid" aria-label="概览" data-viewgroup="board">
-        <article class="kpi-card held">
-          <span>待确认</span>
-          <strong id="kpiHeld">0</strong>
-        </article>
-        <article class="kpi-card">
-          <span>改动数</span>
-          <strong id="kpiTotal">0</strong>
-        </article>
-        <article class="kpi-card">
-          <span>涉及文件</span>
-          <strong id="kpiFiles">0</strong>
-        </article>
-        <article class="kpi-card wide">
-          <span>严重度</span>
-          <div id="severityDots" class="dot-row"></div>
-          <span class="kpi-sub">系统</span>
-          <div id="systemDots" class="dot-row"></div>
-        </article>
-      </section>
-
-      <section id="reportsBar" class="reports-bar" aria-label="近期日报" data-viewgroup="board" hidden></section>
-
-      <section id="sourcesPanel" class="sources-panel" aria-label="器官来源" data-viewgroup="board" hidden></section>
-
-      <section id="board" class="board" aria-label="看板" data-viewgroup="board"></section>
-
-      <!-- ===== 日志 / Activity view ===== -->
-      <section id="activityView" class="activity-view" aria-label="活动日志" hidden>
+      <!-- ===== 日志 / Activity view (默认视图；看板已移除) ===== -->
+      <section id="activityView" class="activity-view" aria-label="活动日志">
         <div id="activityStatus" class="status">加载活动日志...</div>
         <div id="activityTimeline" class="activity-timeline"></div>
       </section>

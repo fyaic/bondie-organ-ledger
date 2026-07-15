@@ -316,7 +316,7 @@ test("SIMULATED E2E: WeCom turn recorded → agent in-band write → committed t
 });
 
 // ---- P5/P6: board card mapping + principal filter + stats (honest, no gaps) ----
-import { loadBoard, buildAttributionStats, toCard } from "../src/dashboard/data.ts";
+import { buildAttributionStats, toCard } from "../src/dashboard/data.ts";
 
 function attrTicket(change_id: string, over: Partial<Attribution> & { kind?: Attribution["principal"]["kind"] } = {}): Ticket {
   const kind = over.kind ?? "im-user";
@@ -350,21 +350,15 @@ function seedBoard(): string {
   return home;
 }
 
-test("board: toCard carries attribution; principal filter selects by kind", () => {
+test("toCard carries attribution; principal filter selects by kind", () => {
   const home = seedBoard();
-  const all = loadBoard({ date: "all" }, home);
-  const cards = Object.values(all.columns).flat();
-  assert.equal(cards.length, 4);
-  assert.ok(cards.find((c) => c.change_id === "chg-1")?.attribution?.principal.verified === true);
+  // toCard preserves the principal/attribution verbatim (verified flag survives).
+  assert.equal(toCard(attrTicket("chg-1", { kind: "im-user" })).attribution?.principal.verified, true);
 
-  const imOnly = Object.values(loadBoard({ date: "all", principal: "im-user" }, home).columns).flat();
-  assert.equal(imOnly.length, 1);
-  assert.equal(imOnly[0].change_id, "chg-1");
-
-  // a ticket with NO attribution filters as unknown (not silently dropped from unknown)
-  const unknown = Object.values(loadBoard({ date: "all", principal: "unknown" }, home).columns).flat();
-  assert.equal(unknown.length, 1);
-  assert.equal(unknown[0].change_id, "chg-4");
+  // principal filter (shared matchesFilters) selects by kind — checked via stats.
+  assert.equal(buildAttributionStats(home, { date: "all", principal: "im-user" }).total, 1, "im-user → chg-1 only");
+  // a ticket with NO attribution filters as unknown (never silently dropped).
+  assert.equal(buildAttributionStats(home, { date: "all", principal: "unknown" }).total, 1, "un-attributed → unknown");
 });
 
 test("attribution --stats: un-attributed tickets counted as unknown (NO silent gaps)", () => {
