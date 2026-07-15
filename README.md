@@ -125,7 +125,7 @@ organledger backfill --reflog     # 回填 reflog 上游更新事件（pull/merg
 - **来源地图**（`GitSource`）：每源的 `{repo_root, remote_url, branch, head, upstream, ahead, behind, dirty}`；离线时 ahead/behind 标 `as of last fetch`（诚实）。
 - **每 ticket 附来源**：回填的每条 content ticket 带 `provenance{kind:"content", remote_url, branch, to_commit=commit, verified:true}`；`file` 用相对 target.home 全路径（如 `skills/eye-on/SKILL.md`），看板口径统一。
 - **上游更新事件**：`--reflog` 把 pull/merge/clone 变成 repo 级 ticket（`before→after=git:from→to`、时间取自 reflog）。诚实局限：reflog 默认 ~90 天 gc，更早不可恢复；窗口内无 pull 属**真实结果非失败**。
-- **看板**：新增「器官来源」面板（读 `state/provenance.json`，**看板绝不跑 git**）+ 抽屉来源块 + 「上游更新 / agent 自改」过滤。
+- **看板**：新增「器官来源」面板（读 `state/provenance.json`，**看板绝不跑 git**）+ 抽屉来源块 + 「上游更新 / 本地改动」过滤（**来源**轴只判"从哪来"、可验证；"谁改的"归**修改者**轴，见 Phase 2）。
 - **doctor**：新增 provenance 段，列各 source 的 remote/branch/dirty/落后标记。
 
 生命周期：

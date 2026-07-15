@@ -58,12 +58,12 @@
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
-          <select id="provenanceFilter" aria-label="来源">
+          <select id="provenanceFilter" aria-label="来源" title="来源：改动从哪来 —— 上游拉取 vs 本地改动（git 可验证）">
             <option value="all">全部来源</option>
             <option value="upstream">上游更新</option>
-            <option value="agent">Agent 自改</option>
+            <option value="agent">本地改动</option>
           </select>
-          <select id="principalFilter" aria-label="修改者">
+          <select id="principalFilter" aria-label="修改者" title="修改者：谁改的 —— IM 用户 / agent / 本机（多不可验证）">
             <option value="all">修改者</option>
             <option value="im-user">IM 用户请求</option>
             <option value="autonomous">agent 自主</option>

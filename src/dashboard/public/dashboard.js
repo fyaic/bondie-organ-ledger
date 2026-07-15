@@ -504,7 +504,7 @@ function provenanceBlock(p) {
     <div class="provenance ${isUpstream ? "upstream" : "local"}">
       <div class="prov-head">
         <span class="prov-kind">${escapeHtml(KIND_LABEL[p.kind] || p.kind)}</span>
-        ${isUpstream ? `<span class="badge upstream-badge">上游更新</span>` : `<span class="badge agent-badge">Agent 自改</span>`}
+        ${isUpstream ? `<span class="badge upstream-badge">上游更新</span>` : `<span class="badge agent-badge">本地改动</span>`}
       </div>
       <div class="prov-src">来自 <code>${escapeHtml(p.remote_url || "（无 remote）")}</code> <span class="prov-branch">@${escapeHtml(p.branch || "detached")}</span></div>
       ${move}
