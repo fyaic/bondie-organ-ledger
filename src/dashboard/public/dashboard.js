@@ -6,6 +6,20 @@ const STATUS_META = [
   ["rolled_back", "已回滚"],
 ];
 
+const SEVERITY_META = [
+  ["critical", "Critical"],
+  ["high", "High"],
+  ["medium", "Medium"],
+  ["low", "Low"],
+];
+
+const SEVERITY_COLORS = {
+  critical: "var(--ol-red)",
+  high: "var(--ol-orange)",
+  medium: "var(--ol-yellow)",
+  low: "var(--ol-green)",
+};
+
 const PILL_COLORS = {
   create: ["rgba(var(--ol-green-rgb), 0.14)", "var(--ol-green)"],
   update: ["rgba(var(--ol-orange-rgb), 0.14)", "var(--ol-orange)"],
@@ -19,9 +33,18 @@ const PILL_COLORS = {
   low: ["rgba(var(--ol-green-rgb), 0.14)", "var(--ol-green)"],
 };
 
+const SYSTEM_COLORS = {
+  openclaw: "var(--ol-blue)",
+  hermes: "var(--ol-cyan)",
+};
+
+const DATE_LABEL = { recent: "近 7 天", today: "今日", all: "全部" };
+
 const state = {
+  board: null,
   pollTimer: null,
-  topview: "activity",
+  view: "status",
+  topview: "board",
   activity: null,
   heatmap: null,
   // file-tree view state (Phase 1.8): which dirs are expanded (by rel_path),
@@ -30,12 +53,31 @@ const state = {
 };
 
 const el = {
+  board: document.querySelector("#board"),
+  status: document.querySelector("#status"),
+  viewButtons: [...document.querySelectorAll("[data-view]")],
   topnavButtons: [...document.querySelectorAll("[data-topview]")],
+  boardGroups: [...document.querySelectorAll('[data-viewgroup="board"]')],
+  boardControls: document.querySelector("#boardControls"),
   activityControls: document.querySelector("#activityControls"),
   heatmapControls: document.querySelector("#heatmapControls"),
+  date: document.querySelector("#dateFilter"),
+  system: document.querySelector("#systemFilter"),
+  severity: document.querySelector("#severityFilter"),
+  provenance: document.querySelector("#provenanceFilter"),
+  principal: document.querySelector("#principalFilter"),
+  principalNote: document.querySelector("#principalNote"),
+  sources: document.querySelector("#sourcesPanel"),
+  q: document.querySelector("#queryFilter"),
   refresh: document.querySelector("#refreshButton"),
   poll: document.querySelector("#pollToggle"),
   theme: document.querySelector("#themeButton"),
+  kpiHeld: document.querySelector("#kpiHeld"),
+  kpiTotal: document.querySelector("#kpiTotal"),
+  kpiFiles: document.querySelector("#kpiFiles"),
+  severityDots: document.querySelector("#severityDots"),
+  systemDots: document.querySelector("#systemDots"),
+  reportsBar: document.querySelector("#reportsBar"),
   // activity view
   activityView: document.querySelector("#activityView"),
   activityStatus: document.querySelector("#activityStatus"),
@@ -64,13 +106,21 @@ init();
 function init() {
   bindEvents();
   syncThemeButton();
-  setTopView("activity"); // 看板视图已移除，默认落到「日志」
+  loadBoard();
+  loadSources();
 }
 
 function bindEvents() {
   for (const button of el.topnavButtons) {
     button.addEventListener("click", () => setTopView(button.dataset.topview));
   }
+  for (const button of el.viewButtons) {
+    button.addEventListener("click", () => setView(button.dataset.view));
+  }
+  for (const control of [el.date, el.system, el.severity, el.provenance, el.principal].filter(Boolean)) {
+    control.addEventListener("change", loadBoard);
+  }
+  el.q.addEventListener("input", debounce(loadBoard, 180));
   el.activityWindow.addEventListener("change", loadActivity);
   el.heatmapRedactToggle.addEventListener("change", () => {
     state.tree.mask = el.heatmapRedactToggle.checked;
@@ -101,14 +151,17 @@ function bindEvents() {
 // Default is 看板. Switching only shows/hides sections; the existing board view
 // and its read-only red line are untouched.
 function setTopView(topview) {
-  const valid = ["activity", "heatmap"];
-  state.topview = valid.includes(topview) ? topview : "activity";
+  const valid = ["board", "activity", "heatmap"];
+  state.topview = valid.includes(topview) ? topview : "board";
   for (const button of el.topnavButtons) {
     button.classList.toggle("active", button.dataset.topview === state.topview);
   }
+  const isBoard = state.topview === "board";
   const isActivity = state.topview === "activity";
   const isHeatmap = state.topview === "heatmap";
 
+  for (const node of el.boardGroups) node.hidden = !isBoard;
+  el.boardControls.hidden = !isBoard;
   el.activityControls.hidden = !isActivity;
   el.heatmapControls.hidden = !isHeatmap;
   el.activityView.hidden = !isActivity;
@@ -121,11 +174,260 @@ function setTopView(topview) {
     if (state.heatmap) renderHeatmap(state.heatmap);
     else loadHeatmap();
   }
+  updatePrincipalNote();
+}
+
+// The 本机 (local) filter can only tell that a change came from THIS device — it
+// cannot say whether the user or a local agent made it. Surface that honestly as
+// a small note, shown only on the board when 本机 is the selected 修改者.
+function updatePrincipalNote() {
+  if (!el.principalNote) return;
+  const show = state.topview === "board" && el.principal && el.principal.value === "local";
+  el.principalNote.hidden = !show;
 }
 
 function refreshCurrentView() {
-  if (state.topview === "heatmap") loadHeatmap();
-  else loadActivity();
+  if (state.topview === "activity") loadActivity();
+  else if (state.topview === "heatmap") loadHeatmap();
+  else { loadBoard(); loadSources(); }
+}
+
+async function loadBoard() {
+  updatePrincipalNote();
+  setStatus("loading", "加载审计数据...");
+  try {
+    const params = new URLSearchParams({
+      date: el.date.value,
+      system: el.system.value,
+      severity: el.severity.value,
+      provenance: el.provenance.value,
+      principal: el.principal ? el.principal.value : "all",
+      q: el.q.value.trim(),
+    });
+    const response = await fetch(`/api/board?${params.toString()}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.board = await response.json();
+    render(state.board);
+    const label = DATE_LABEL[el.date.value] || el.date.value;
+    const emptyMsg = el.date.value === "all"
+      ? "暂无器官改动记录"
+      : `${label}暂无器官改动 —— 可切换到「全部」查看历史`;
+    setStatus(state.board.kpi.total ? "ready" : "empty", state.board.kpi.total ? "" : emptyMsg);
+  } catch (error) {
+    setStatus("error", `读取失败：${error.message || "未知错误"}。请重试。`);
+  }
+}
+
+function render(board) {
+  el.kpiHeld.textContent = board.kpi.held;
+  el.kpiTotal.textContent = board.kpi.total;
+  el.kpiFiles.textContent = board.kpi.files;
+  el.severityDots.replaceChildren(...Object.entries(board.kpi.severity).map(([name, count]) =>
+    dot(SEVERITY_COLORS[name], `${name} ${count}`)));
+
+  // G3: system distribution (computed server-side, now surfaced)
+  const systems = board.kpi.systems || {};
+  el.systemDots.replaceChildren(...Object.entries(systems)
+    .filter(([, count]) => count > 0)
+    .map(([name, count]) => dot(SYSTEM_COLORS[name] || "var(--ol-text-muted)", `${name} ${count}`)));
+
+  // G4: recent reports (computed server-side, now surfaced)
+  const reports = board.kpi.reports || [];
+  if (reports.length) {
+    el.reportsBar.hidden = false;
+    el.reportsBar.replaceChildren(
+      Object.assign(document.createElement("span"), { className: "reports-label", textContent: "近期日报" }),
+      ...reports.map((name) => Object.assign(document.createElement("span"), {
+        className: "report-chip",
+        textContent: name.replace(/\.md$/, ""),
+      })),
+    );
+  } else {
+    el.reportsBar.hidden = true;
+  }
+
+  renderBoardColumns(board);
+}
+
+// G5: 器官来源面板 — reads /api/provenance (state/provenance.json). The board
+// NEVER runs git; this is a pure file read served by the server.
+async function loadSources() {
+  try {
+    const response = await fetch("/api/provenance");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderSources(await response.json());
+  } catch {
+    el.sources.hidden = true;
+  }
+}
+
+function renderSources(payload) {
+  if (!payload || payload.missing || !payload.report) {
+    el.sources.hidden = false;
+    el.sources.replaceChildren(Object.assign(document.createElement("div"), {
+      className: "sources-empty",
+      textContent: "暂无来源地图 —— 运行 `organledger provenance` 生成 state/provenance.json 后刷新。",
+    }));
+    return;
+  }
+  const report = payload.report;
+  const groups = report.targets || [];
+  const allSources = groups.flatMap((g) => (g.sources || []).map((s) => ({ ...s, system: g.system })));
+  el.sources.hidden = false;
+
+  const header = document.createElement("div");
+  header.className = "sources-header";
+  const asOf = report.fetched ? "已刷新" : "ahead/behind 为上次 fetch 时";
+  header.innerHTML = `<h2>器官来源 / Sources</h2><span class="sources-sub">${allSources.length} 个 git 源 · ${escapeHtml(asOf)}</span>`;
+
+  const table = document.createElement("div");
+  table.className = "sources-table";
+  const headRow = document.createElement("div");
+  headRow.className = "source-row head";
+  headRow.innerHTML =
+    `<span>器官</span><span>Remote</span><span>分支</span><span>HEAD</span><span>↕ 上游</span><span class="src-badges">状态</span>`;
+  table.append(headRow, ...allSources.map(renderSourceRow));
+  el.sources.replaceChildren(header, table);
+}
+
+function renderSourceRow(s) {
+  const row = document.createElement("div");
+  row.className = "source-row";
+  const dir = s.is_nested ? s.rel : `${s.system || ""} (parent)`;
+  const head = s.head_commit ? s.head_commit.slice(0, 7) : "—";
+  const ab = s.upstream
+    ? `<span class="ab">↓${s.behind ?? "?"} ↑${s.ahead ?? "?"}</span>`
+    : `<span class="ab muted">无 upstream</span>`;
+  const dirty = s.dirty ? `<span class="badge dirty">本地改动</span>` : "";
+  const behindBadge = (s.behind ?? 0) > 0 ? `<span class="badge behind">落后 ${s.behind}</span>` : "";
+  row.innerHTML = `
+    <span class="src-dir" title="${escapeAttr(s.repo_root || "")}">${escapeHtml(dir)}</span>
+    <span class="src-remote">${escapeHtml(s.remote_url || "（无 remote）")}</span>
+    <span class="src-branch">@${escapeHtml(s.branch || "detached")}</span>
+    <span class="src-head">${escapeHtml(head)}</span>
+    ${ab}
+    <span class="src-badges">${behindBadge}${dirty}</span>
+  `;
+  return row;
+}
+
+function dot(color, text) {
+  const item = document.createElement("span");
+  item.className = "severity-dot";
+  item.style.setProperty("--dot-color", color);
+  item.textContent = text;
+  return item;
+}
+
+function renderBoardColumns(board) {
+  if (!el.board) return; // status lanes removed — dashboard home is KPI overview only
+  if (state.view === "severity") {
+    const cards = flattenCards(board);
+    el.board.replaceChildren(...SEVERITY_META.map(([severity, title]) => {
+      return renderColumn(severity, title, cards.filter((card) => card.severity === severity));
+    }));
+    return;
+  }
+
+  el.board.replaceChildren(...STATUS_META.map(([status, title]) => renderColumn(status, title, board.columns[status] || [])));
+}
+
+function flattenCards(board) {
+  return STATUS_META.flatMap(([status]) => board.columns[status] || []);
+}
+
+function renderColumn(status, title, cards) {
+  const column = document.createElement("section");
+  column.className = `column ${status}`;
+  column.innerHTML = `
+    <header class="column-header">
+      <h2>${title}</h2>
+      <span class="count">${cards.length}</span>
+    </header>
+  `;
+  const list = document.createElement("div");
+  list.className = "cards";
+  if (!cards.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "（无）";
+    list.append(empty);
+  } else {
+    list.append(...cards.map(renderCard));
+  }
+  column.append(list);
+  return column;
+}
+
+function renderCard(card) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `ticket-card ${card.status}`;
+  button.style.setProperty("--severity-color", SEVERITY_COLORS[card.severity] || "var(--ol-text-muted)");
+  button.innerHTML = `
+    <span class="card-main">
+      <span class="file">${escapeHtml(card.file)}</span>
+      ${pill(card.op)}
+    </span>
+    <span class="change">${escapeHtml(card.change_id)}</span>
+    <span class="meta">
+      ${pill(card.severity)}
+      ${pill(card.system)}
+      ${principalBadge(card.attribution)}
+    </span>
+    <span class="time">${formatDate(card.created_at)}</span>
+  `;
+  button.addEventListener("click", () => openDrawer(card));
+  return button;
+}
+
+// Compact principal (who-caused-it) badge for cards. Honest, four buckets:
+//   👤 IM user (channel-authenticated) / 🤖 agent autonomous / 🖥 local (unverified) / ❔ unknown.
+// A card with no attribution is treated as unknown (never silently blank).
+function principalBadge(a) {
+  const p = a && a.principal;
+  if (!p || p.kind === "unknown") return `<span class="pill principal-pill unknown" title="主使未知（未插桩/无 turn）">❔ 主使未知</span>`;
+  if (p.kind === "im-user") {
+    const ch = p.channel === "feishu" ? "飞书" : p.channel === "wecom" ? "企业微信" : (p.channel || "IM");
+    const name = escapeHtml(p.display || p.id || "?");
+    return `<span class="pill principal-pill im" title="平台认证·运行时证言（非密码学证明）">👤 ${escapeHtml(ch)}·${name}</span>`;
+  }
+  if (p.kind === "autonomous") return `<span class="pill principal-pill auto" title="agent 自主（有 turn 无主使）">🤖 agent 自主</span>`;
+  return `<span class="pill principal-pill local" title="本机改动，不区分你/CC/agent">🖥 本机（未验证）</span>`;
+}
+
+function openDrawer(card) {
+  el.drawerBody.innerHTML = `
+    <h2>${escapeHtml(card.file)}</h2>
+    <span class="change">${escapeHtml(card.change_id)}</span>
+    <div class="detail-grid">
+      ${detail("状态", statusLabel(card.status))}
+      ${detail("操作", card.op)}
+      ${detail("系统", card.system)}
+      ${detail("原因", card.reason || "未提供")}
+      ${detail("Before hash", card.before_hash || "null")}
+      ${detail("After hash", card.after_hash || "null")}
+      ${detail("Git commit", card.git_commit || "null")}
+      ${detail("Session", card.session_id || "null")}
+      ${detail("Author", card.author_verified ? "已验证" : "未验证署名")}
+      ${detail("时间", card.created_at)}
+    </div>
+    ${attributionBlock(card.attribution)}
+    ${provenanceBlock(card.provenance)}
+    ${actionsBlock(card)}
+    ${briefingBlock("此改动")}
+  `;
+
+  drawerBriefing = buildCardBriefing(card);
+  // wire copy-command buttons (approve/reject/rollback) — only those with a command
+  for (const btn of el.drawerBody.querySelectorAll(".command-button[data-command]")) {
+    btn.addEventListener("click", () => copyCommand(btn.dataset.command));
+  }
+  const briefBtn = el.drawerBody.querySelector(".briefing-button");
+  if (briefBtn) briefBtn.addEventListener("click", copyBriefing);
+  el.drawer.classList.add("open");
+  el.drawer.setAttribute("aria-hidden", "false");
+  el.overlay.hidden = false;
 }
 
 const STATUS_LABEL = Object.fromEntries(STATUS_META);
@@ -133,10 +435,56 @@ function statusLabel(status) {
   return STATUS_LABEL[status] || status;
 }
 
+// Contextual next-steps for a card. The board is READ-ONLY (single-writer
+// invariant), so actions are terminal commands the user copies — this block is
+// what makes the held/approve/reject/rollback loop discoverable instead of
+// feeling unfinished.
+function cardActions(card) {
+  const id = card.change_id;
+  if (card.status === "held") {
+    return [
+      { label: "✅ 同意并落地", cmd: `organledger approve ${id}`, hint: "回放为一次 git commit，移出待确认" },
+      { label: "✋ 拒绝", cmd: `organledger reject ${id}`, hint: "丢弃该改动（不写 git），账本记一条 rejected" },
+    ];
+  }
+  if (card.status === "observed" || card.status === "approved") {
+    return [
+      { label: "↩️ 回滚此改动", cmd: `organledger rollback --change ${id} --confirm`, hint: "安全退回改动前（回滚前自动建 safety 分支）" },
+    ];
+  }
+  return []; // rejected / rolled_back are terminal
+}
+
+function actionsBlock(card) {
+  const actions = cardActions(card);
+  const rows = actions.length
+    ? actions
+        .map(
+          (a) => `
+      <div class="action-row">
+        <div class="action-meta"><span class="action-label">${escapeHtml(a.label)}</span><span class="action-hint">${escapeHtml(a.hint)}</span></div>
+        <button class="command-button" type="button" data-command="${escapeAttr(a.cmd)}">复制命令</button>
+        <code class="action-cmd">${escapeHtml(a.cmd)}</code>
+      </div>`,
+        )
+        .join("")
+    : `<div class="action-empty">终态，无后续操作（${escapeHtml(statusLabel(card.status))}）。</div>`;
+  return `
+    <div class="actions-block">
+      <div class="actions-head">操作 <span class="actions-sub">看板只读，命令在终端执行（守单一 writer，防并发写坏哈希链）</span></div>
+      ${rows}
+    </div>`;
+}
+
 function closeDrawer() {
   el.drawer.classList.remove("open");
   el.drawer.setAttribute("aria-hidden", "true");
   el.overlay.hidden = true;
+}
+
+async function copyCommand(command) {
+  await navigator.clipboard.writeText(command);
+  showToast("命令已复制，只在终端执行。");
 }
 
 // ============================================================================
@@ -208,6 +556,12 @@ function buildDayBriefing(date, summary, items) {
   return [head, BRIEFING_INTRO, overview, detail, BRIEFING_HOWTO].filter(Boolean).join("\n\n");
 }
 
+function buildCardBriefing(card) {
+  const head = `# OrganLedger 改动简报 · ${card.file}`;
+  const detail = `## 改动记录\n${briefingItem(card, 1)}`;
+  return [head, BRIEFING_INTRO, detail, BRIEFING_HOWTO].filter(Boolean).join("\n\n");
+}
+
 // The drawer block that surfaces the button. `scopeLabel` = "当天" | "此改动".
 function briefingBlock(scopeLabel) {
   return `
@@ -223,14 +577,99 @@ async function copyBriefing() {
   showToast("已复制改动简报 —— 粘贴给本机 coding agent 深入分析（含 git 核对指引，不含文件内容）。");
 }
 
+function detail(label, value) {
+  return `<div class="detail-item"><span>${escapeHtml(label)}</span><code>${escapeHtml(value)}</code></div>`;
+}
+
 const KIND_LABEL = {
   content: "文件历史", pull: "上游 pull", merge: "上游 merge", clone: "clone",
   "local-commit": "本地提交", "history-move": "HEAD 移动",
 };
 
+// Drawer provenance block: shows the SOURCE dimension. Source is verifiable
+// (content-addressed SHA / config), identity is NOT — the copy makes that split
+// explicit so no one reads "verified" as "we know who did it".
+function provenanceBlock(p) {
+  if (!p) return "";
+  const isUpstream = ["pull", "merge", "clone"].includes(p.kind);
+  const move = p.from_commit || p.to_commit
+    ? `<div class="prov-move"><code>${escapeHtml((p.from_commit || "∅").slice(0, 8))}</code> → <code>${escapeHtml((p.to_commit || "∅").slice(0, 8))}</code></div>`
+    : "";
+  return `
+    <div class="provenance ${isUpstream ? "upstream" : "local"}">
+      <div class="prov-head">
+        <span class="prov-kind">${escapeHtml(KIND_LABEL[p.kind] || p.kind)}</span>
+        ${isUpstream ? `<span class="badge upstream-badge">上游更新</span>` : `<span class="badge agent-badge">本地改动</span>`}
+      </div>
+      <div class="prov-src">来自 <code>${escapeHtml(p.remote_url || "（无 remote）")}</code> <span class="prov-branch">@${escapeHtml(p.branch || "detached")}</span></div>
+      ${move}
+      <div class="prov-verify">✅ 来源已验证（内容寻址）· ⚠️ 身份未验证（谁改的仍不可证）</div>
+    </div>
+  `;
+}
+
+const MATCH_LABEL = {
+  "turn-id": "精确关联（turn-id）", "session": "会话关联", "time-window": "时间窗关联（弱）", "none": "未关联",
+};
+
+// Drawer attribution block: the PRINCIPAL (who-caused-it) dimension. The copy is
+// deliberately honest — it separates "whose hand wrote it" (writer) from "whose
+// request caused it" (principal), never claims local changes are attributable,
+// marks attested (not "proven"), flags weak time-window matches, and states that
+// "requested" does NOT prove the write was faithful to the request.
+function attributionBlock(a) {
+  if (!a) return "";
+  const p = a.principal;
+  const writerLabel = { "agent-runtime": "agent 运行时", "local": "本机", "git": "git", "unknown": "未知" }[a.writer] || a.writer;
+  let who, verifyLine, cls;
+  if (p.kind === "im-user") {
+    const ch = p.channel === "feishu" ? "飞书" : p.channel === "wecom" ? "企业微信" : (p.channel || "IM");
+    who = `👤 来自 ${escapeHtml(ch)} 用户 <code>${escapeHtml(p.display || p.id || "?")}</code> 的请求 · 经 ${escapeHtml(writerLabel)} 执行`;
+    verifyLine = p.verified && p.attestation === "platform-attested"
+      ? `✅ 已认证（渠道认证·运行时证言）—— <em>非密码学证明，运行时被攻陷可伪造</em>`
+      : `⚠️ 未认证的 IM 主使`;
+    cls = "im";
+  } else if (p.kind === "autonomous") {
+    who = `🤖 agent 自主（有本轮上下文但无外部主使）`;
+    verifyLine = `⚠️ 未验证 · 自主度：自发（self）`;
+    cls = "auto";
+  } else if (p.kind === "local") {
+    who = `🖥 本机改动（你 / Claude Code / agent 本地，<strong>不区分</strong>）`;
+    verifyLine = `⚠️ 本机永远未验证（by design，不猜是谁）`;
+    cls = "local";
+  } else {
+    who = `❔ 主使未知（未插桩 / 无 turn）`;
+    verifyLine = `⚠️ 未关联到任何主使记录`;
+    cls = "unknown";
+  }
+  const autonomyLine = a.autonomy === "requested"
+    ? `<div class="attr-caveat">📩 据本轮请求（<strong>忠实性未证</strong>：能证有该请求，证不了写入忠实于请求）</div>`
+    : "";
+  const matchLine = (a.match && a.match !== "none")
+    ? `<div class="attr-match ${a.match === "time-window" ? "weak" : ""}">关联强度：${escapeHtml(MATCH_LABEL[a.match] || a.match)}${a.match === "time-window" ? " ⚠️" : ""}</div>`
+    : "";
+  return `
+    <div class="attribution ${cls}">
+      <div class="attr-head"><span class="attr-title">主使归因</span></div>
+      <div class="attr-who">${who}</div>
+      <div class="attr-verify">${verifyLine}</div>
+      ${autonomyLine}
+      ${matchLine}
+    </div>
+  `;
+}
+
 function pill(value) {
   const [bg, color] = PILL_COLORS[value] || ["var(--ol-accent-soft)", "var(--ol-text-muted)"];
   return `<span class="pill" style="--pill-bg:${bg};--pill-color:${color}">${escapeHtml(value)}</span>`;
+}
+
+function setView(view) {
+  state.view = view === "severity" ? "severity" : "status";
+  for (const button of el.viewButtons) {
+    button.classList.toggle("active", button.dataset.view === state.view);
+  }
+  if (state.board) renderBoardColumns(state.board);
 }
 
 function togglePolling() {
@@ -259,6 +698,11 @@ function toggleTheme() {
 function syncThemeButton() {
   const dark = document.documentElement.classList.contains("ol-dark");
   el.theme.textContent = dark ? "亮色" : "暗色";
+}
+
+function setStatus(kind, text) {
+  el.status.className = `status ${kind}`;
+  el.status.textContent = text;
 }
 
 function showToast(text) {

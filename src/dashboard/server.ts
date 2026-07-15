@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { BoardFilters } from "./data.ts";
+import { loadBoard, loadProvenance } from "./data.ts";
 import { loadActivity, loadActivityDay } from "./activity.ts";
 import { loadHeatmap } from "./heatmap-read.ts";
 import { resolveReveal, revealInOS } from "./reveal.ts";
@@ -56,6 +58,14 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
       }
 
       if (req.method !== "GET") return sendText(res, 405, "Method Not Allowed");
+      if (url.pathname === "/api/board") {
+        const data = loadBoard(parseFilters(url), options.ledgerHome);
+        return sendJson(res, 200, data);
+      }
+      if (url.pathname === "/api/provenance") {
+        // read-only: serves state/provenance.json (never runs git)
+        return sendJson(res, 200, loadProvenance(options.ledgerHome));
+      }
       if (url.pathname === "/api/activity") {
         // feature A: per-day activity log, aggregated server-side from tickets
         // (no fs traversal, no git). window = all | Nd.
@@ -100,6 +110,17 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
   });
 
   return server;
+}
+
+function parseFilters(url: URL): BoardFilters {
+  return {
+    date: url.searchParams.get("date") || "recent",
+    system: (url.searchParams.get("system") || "all") as BoardFilters["system"],
+    severity: (url.searchParams.get("severity") || "all") as BoardFilters["severity"],
+    provenance: (url.searchParams.get("provenance") || "all") as BoardFilters["provenance"],
+    principal: (url.searchParams.get("principal") || "all") as BoardFilters["principal"],
+    q: url.searchParams.get("q") || "",
+  };
 }
 
 async function sendStatic(res: http.ServerResponse, fileName: string, theme: string): Promise<void> {
