@@ -380,12 +380,11 @@ function principalBadge(a) {
 }
 
 function openDrawer(card) {
-  const command = `organledger approve ${card.change_id}`;
   el.drawerBody.innerHTML = `
     <h2>${escapeHtml(card.file)}</h2>
     <span class="change">${escapeHtml(card.change_id)}</span>
     <div class="detail-grid">
-      ${detail("状态", card.status)}
+      ${detail("状态", statusLabel(card.status))}
       ${detail("操作", card.op)}
       ${detail("系统", card.system)}
       ${detail("原因", card.reason || "未提供")}
@@ -398,16 +397,62 @@ function openDrawer(card) {
     </div>
     ${attributionBlock(card.attribution)}
     ${provenanceBlock(card.provenance)}
-    ${card.status === "held" ? `<button class="command-button" type="button" data-command="${escapeAttr(command)}">复制 ${escapeHtml(command)}</button>` : ""}
+    ${actionsBlock(card)}
   `;
 
-  const commandButton = el.drawerBody.querySelector(".command-button");
-  if (commandButton) {
-    commandButton.addEventListener("click", () => copyCommand(commandButton.dataset.command));
+  // wire every copy-command button in the actions block
+  for (const btn of el.drawerBody.querySelectorAll(".command-button")) {
+    btn.addEventListener("click", () => copyCommand(btn.dataset.command));
   }
   el.drawer.classList.add("open");
   el.drawer.setAttribute("aria-hidden", "false");
   el.overlay.hidden = false;
+}
+
+const STATUS_LABEL = Object.fromEntries(STATUS_META);
+function statusLabel(status) {
+  return STATUS_LABEL[status] || status;
+}
+
+// Contextual next-steps for a card. The board is READ-ONLY (single-writer
+// invariant), so actions are terminal commands the user copies — this block is
+// what makes the held/approve/reject/rollback loop discoverable instead of
+// feeling unfinished.
+function cardActions(card) {
+  const id = card.change_id;
+  if (card.status === "held") {
+    return [
+      { label: "✅ 同意并落地", cmd: `organledger approve ${id}`, hint: "回放为一次 git commit，移出待确认" },
+      { label: "✋ 拒绝", cmd: `organledger reject ${id}`, hint: "丢弃该改动（不写 git），账本记一条 rejected" },
+    ];
+  }
+  if (card.status === "observed" || card.status === "approved") {
+    return [
+      { label: "↩️ 回滚此改动", cmd: `organledger rollback --change ${id} --confirm`, hint: "安全退回改动前（回滚前自动建 safety 分支）" },
+    ];
+  }
+  return []; // rejected / rolled_back are terminal
+}
+
+function actionsBlock(card) {
+  const actions = cardActions(card);
+  const rows = actions.length
+    ? actions
+        .map(
+          (a) => `
+      <div class="action-row">
+        <div class="action-meta"><span class="action-label">${escapeHtml(a.label)}</span><span class="action-hint">${escapeHtml(a.hint)}</span></div>
+        <button class="command-button" type="button" data-command="${escapeAttr(a.cmd)}">复制命令</button>
+        <code class="action-cmd">${escapeHtml(a.cmd)}</code>
+      </div>`,
+        )
+        .join("")
+    : `<div class="action-empty">终态，无后续操作（${escapeHtml(statusLabel(card.status))}）。</div>`;
+  return `
+    <div class="actions-block">
+      <div class="actions-head">操作 <span class="actions-sub">看板只读，命令在终端执行（守单一 writer，防并发写坏哈希链）</span></div>
+      ${rows}
+    </div>`;
 }
 
 function closeDrawer() {
