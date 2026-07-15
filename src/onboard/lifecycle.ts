@@ -19,6 +19,8 @@ export function printPaths(homeArg: string): string[] {
     ["reports/audit/", p.reports, "audit"],
     ["state/events/inbox.jsonl", p.inbox, "state"],
     ["state/events/processed/", p.processed, "state"],
+    ["state/provenance.json", p.provenance, "state"],
+    ["state/heatmap.json", p.heatmap, "state"],
     ["state/daemon.lock", p.lock, "state"],
     ["logs/", p.logs, "logs"],
     ["cache/", p.cache, "cache"],

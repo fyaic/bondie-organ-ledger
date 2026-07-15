@@ -94,6 +94,7 @@ export function paths(ledgerHome: string) {
     // state (mutable; clearable when stopped) — moved under state/
     state: path.join(h, "state"),
     provenance: path.join(h, "state", "provenance.json"), // GitSource map for the dashboard (recomputable)
+    heatmap: path.join(h, "state", "heatmap.json"),       // directory heat treemap for the dashboard (recomputable)
     inbox: path.join(h, "state", "events", "inbox.jsonl"),
     processed: path.join(h, "state", "events", "processed"),
     lock: path.join(h, "state", "daemon.lock"),

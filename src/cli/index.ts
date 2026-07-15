@@ -16,6 +16,7 @@ import { runInit } from "../onboard/init.ts";
 import { backfillFromGitHistory, backfillReflog } from "../onboard/backfill.ts";
 import { runDoctor } from "../onboard/doctor.ts";
 import { buildProvenanceReport, writeProvenanceReport, formatProvenanceTable } from "../onboard/provenance.ts";
+import { buildHeatmap, writeHeatmapReport, formatHeatmapSummary } from "../onboard/heatmap.ts";
 import { printPaths, runReset, runUninstall } from "../onboard/lifecycle.ts";
 import { installAutostart } from "../onboard/autostart.ts";
 import { startDashboardServer } from "../dashboard/server.ts";
@@ -201,6 +202,28 @@ async function main(): Promise<void> {
       if (!flags["json"]) console.log(`\n[written] ${out}`);
       return;
     }
+    case "heatmap": {
+      // READ-ONLY privacy heatmap: derives change frequency from the ledger and
+      // (only with --full-tree) reads target DIRECTORY ENTRIES — never file
+      // contents. Writes state/heatmap.json for the dashboard. Safe while the
+      // daemon is up (no ledger writes, no guardSingleWriter).
+      const window = S(flags["window"]) || "all";
+      const fullTree = !!flags["full-tree"];
+      const redactFlag = S(flags["redact"]);
+      const redact = redactFlag ? redactFlag.split(",").map((g) => g.trim()).filter(Boolean) : [];
+      const report = buildHeatmap(cfg, { window, fullTree, redact });
+      if (flags["json"]) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log(`OrganLedger ${formatHeatmapSummary(report)}`);
+        if (report.limits.truncated) {
+          console.log(`  ⚠ 已折叠/截断部分节点（node_modules/.git 已排除，超限目录折叠）——见 heatmap.json truncated 标记。`);
+        }
+      }
+      const out = writeHeatmapReport(cfg.ledger_home, report);
+      if (!flags["json"]) console.log(`\n[written] ${out}`);
+      return;
+    }
     case "verify-ledger": {
       const v = new Ledger(cfg.ledger_home).verify();
       console.log(v.ok ? `OK: ${v.detail}` : `TAMPER: ${v.detail}`);
@@ -243,6 +266,7 @@ function printHelp(home: string): void {
     "  rollback --change <id> | --session <id> | --before <ts> [--confirm]",
     "  approve <change_id> | reject <change_id>",
     "  provenance [--fetch] [--json]   scan each organ folder's git source → state/provenance.json (read-only)",
+    "  heatmap [--window all|Nd] [--full-tree] [--redact <glob,...>] [--json]   privacy dir heatmap (color=frequency) → state/heatmap.json (read-only)",
     "  verify-ledger              validate hash chain",
     "  status                     quick summary"
   );

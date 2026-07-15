@@ -100,7 +100,7 @@ function readHeldTickets(heldDir: string): Ticket[] {
   return tickets;
 }
 
-function toCard(ticket: Ticket): DashboardCard {
+export function toCard(ticket: Ticket): DashboardCard {
   return {
     change_id: ticket.change_id,
     file: ticket.file,

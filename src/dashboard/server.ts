@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import type { BoardFilters } from "./data.ts";
 import { loadBoard, loadProvenance } from "./data.ts";
+import { loadActivity, loadActivityDay } from "./activity.ts";
+import { loadHeatmap } from "./heatmap-read.ts";
 
 export interface DashboardServerOptions {
   port?: number;
@@ -37,6 +39,22 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
       if (url.pathname === "/api/provenance") {
         // read-only: serves state/provenance.json (never runs git)
         return sendJson(res, 200, loadProvenance(options.ledgerHome));
+      }
+      if (url.pathname === "/api/activity") {
+        // feature A: per-day activity log, aggregated server-side from tickets
+        // (no fs traversal, no git). window = all | Nd.
+        const window = url.searchParams.get("window") || "all";
+        return sendJson(res, 200, loadActivity(window, options.ledgerHome));
+      }
+      if (url.pathname === "/api/activity/day") {
+        // one day's逐条 detail — reuses the board card model, NO file content.
+        const date = url.searchParams.get("date") || "";
+        return sendJson(res, 200, loadActivityDay(date, options.ledgerHome));
+      }
+      if (url.pathname === "/api/heatmap") {
+        // feature B: read-only serves state/heatmap.json (fs traversal happens
+        // ONLY in the `organledger heatmap` CLI command, never here).
+        return sendJson(res, 200, loadHeatmap(options.ledgerHome));
       }
       if (url.pathname === "/" || url.pathname === "/index.html") {
         return sendStatic(res, "index.html", theme);

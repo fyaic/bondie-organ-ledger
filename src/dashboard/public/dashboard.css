@@ -611,3 +611,90 @@ strong,
 .prov-move { font-size: 12.5px; margin-bottom: 6px; }
 .prov-move code { font-family: ui-monospace, monospace; color: var(--ol-text); }
 .prov-verify { font-size: 11.5px; color: var(--ol-text-muted); border-top: 1px dashed var(--ol-border); padding-top: 6px; }
+
+/* ===== top-level views (看板 | 日志 | 热力图) ============================ */
+/* [hidden] must beat explicit display: values below (display:flex/contents would
+   otherwise defeat the attribute and leak hidden views/controls). */
+[hidden] { display: none !important; }
+.segmented.topnav { font-family: var(--ol-font-head); }
+.controls-group { display: contents; }
+
+/* ===== 日志 / Activity view ============================================== */
+.activity-view { display: flex; flex-direction: column; gap: 14px; }
+.activity-timeline { display: flex; flex-direction: column; gap: 14px; }
+.activity-day {
+  background: var(--ol-bg-2);
+  border: 1px solid var(--ol-border);
+  border-radius: var(--ol-radius-card);
+  padding: 16px 18px;
+  box-shadow: 0 1px 0 var(--ol-fade);
+}
+.activity-day-head {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px 16px;
+  border-bottom: 1px dashed var(--ol-border); padding-bottom: 10px; margin-bottom: 10px;
+}
+.ac-date { display: flex; align-items: baseline; gap: 8px; }
+.ac-date strong { font-family: var(--ol-font-head); font-size: 18px; color: var(--ol-text); }
+.ac-weekday { font-size: 12px; color: var(--ol-text-muted); }
+.ac-total { font-size: 13px; color: var(--ol-text-muted); font-weight: 600; }
+.ac-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.ac-pill {
+  font-size: 11.5px; padding: 2px 9px; border-radius: var(--ol-radius-pill);
+  background: var(--ol-bg-3); color: var(--ol-text-muted);
+}
+.ac-pill.create { background: rgba(var(--ol-green-rgb), 0.16); color: var(--ol-green); }
+.ac-pill.update { background: rgba(var(--ol-orange-rgb), 0.16); color: var(--ol-orange); }
+.ac-pill.delete { background: rgba(var(--ol-red-rgb), 0.16); color: var(--ol-red); }
+.ac-pill.upstream { background: rgba(102, 140, 179, 0.16); color: var(--ol-blue); font-weight: 600; }
+.activity-summary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.activity-summary li {
+  font-size: 14.5px; color: var(--ol-text); padding-left: 16px; position: relative; line-height: 1.5;
+}
+.activity-summary li::before { content: "·"; position: absolute; left: 4px; color: var(--ol-accent); font-weight: 700; }
+.activity-expand {
+  margin-top: 12px; align-self: flex-start; background: none; border: none;
+  color: var(--ol-accent); font-size: 13px; cursor: pointer; padding: 2px 0;
+}
+.activity-expand:hover { text-decoration: underline; }
+
+/* day detail in drawer */
+.day-items { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.day-item { border-bottom: 1px dashed var(--ol-border); padding-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+.di-file { font-family: var(--ol-font-mono, ui-monospace, monospace); font-size: 13px; color: var(--ol-text); word-break: break-all; }
+.di-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.di-reason { font-size: 12px; color: var(--ol-text-muted); font-style: italic; }
+
+/* ===== 热力图 / Heatmap view ============================================ */
+.heatmap-view { display: flex; flex-direction: column; gap: 12px; }
+.heatmap-privacy-note {
+  background: var(--ol-accent-soft); border: 1px solid var(--ol-border);
+  border-radius: var(--ol-radius); padding: 10px 14px; font-size: 13px; color: var(--ol-text);
+}
+.heatmap-meta { font-size: 12.5px; color: var(--ol-text-muted); }
+.heatmap-legend { display: flex; align-items: center; gap: 4px; }
+.legend-label { font-size: 12px; color: var(--ol-text-muted); }
+.legend-swatch { width: 26px; height: 14px; border-radius: 2px; border: 1px solid var(--ol-fade); }
+.heatmap-canvas { display: flex; flex-direction: column; gap: 20px; }
+.heatmap-empty { padding: 30px; text-align: center; color: var(--ol-text-muted); font-size: 14px; }
+.heatmap-empty code { background: var(--ol-bg-3); padding: 1px 6px; border-radius: 3px; font-family: ui-monospace, monospace; }
+.heatmap-target-title { font-family: var(--ol-font-head); font-size: 15px; margin-bottom: 6px; color: var(--ol-text); }
+.ht-sub { font-size: 12px; color: var(--ol-text-muted); font-family: var(--ol-font-body); }
+.treemap {
+  position: relative; width: 100%; border: 1px solid var(--ol-border);
+  border-radius: var(--ol-radius); overflow: hidden; background: var(--ol-bg-3);
+}
+.tm-cell {
+  position: absolute; overflow: hidden; box-sizing: border-box;
+  border: 0.5px solid rgba(255, 255, 255, 0.55); cursor: pointer;
+  transition: outline 0.08s ease;
+}
+.tm-cell:hover { outline: 2px solid var(--ol-text); outline-offset: -2px; z-index: 5; }
+.tm-label {
+  display: block; font-size: 10.5px; line-height: 1.25; padding: 2px 4px;
+  color: hsl(31, 45%, 15%); font-family: var(--ol-font-body);
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden; pointer-events: none;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+.tm-cell.redacted { background-image: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.08) 4px, rgba(0,0,0,0.08) 8px); }
+.tm-cell.truncated { border-style: dashed; border-color: rgba(0, 0, 0, 0.3); }
+.ol-dark .tm-label { color: hsl(34, 40%, 92%); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45); }

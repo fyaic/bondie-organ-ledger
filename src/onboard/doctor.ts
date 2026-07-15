@@ -77,6 +77,27 @@ export function runDoctor(homeArg: string): { lines: string[]; healthy: boolean 
     add("🟡", "provenance", `could not scan sources: ${(e as Error).message}`);
   }
 
+  // heatmap: read-only freshness check of state/heatmap.json. Doctor does NOT
+  // rebuild it (that would traverse the target fs) — it only reports whether a
+  // snapshot exists, how many nodes, and if it was bounded/truncated.
+  try {
+    const hmFile = paths(home).heatmap;
+    if (!fs.existsSync(hmFile)) {
+      add("🟡", "heatmap", "no snapshot — run 'organledger heatmap [--full-tree]' to generate state/heatmap.json");
+    } else {
+      const hm = JSON.parse(fs.readFileSync(hmFile, "utf8"));
+      const nodes = hm?.limits?.node_count ?? "?";
+      const trunc = hm?.limits?.truncated ? " (bounded: some nodes folded)" : "";
+      const ageMs = Date.now() - Date.parse(hm?.generated_at ?? "");
+      const ageStr = Number.isNaN(ageMs) ? "unknown age" : `${Math.round(ageMs / 3600000)}h old`;
+      const stale = !Number.isNaN(ageMs) && ageMs > 7 * 24 * 3600000;
+      add(stale ? "🟡" : "🟢", "heatmap",
+        `state/heatmap.json — ${nodes} nodes · window=${hm?.window ?? "?"} · ${hm?.full_tree ? "full-tree" : "changed-only"} · ${ageStr}${trunc}`);
+    }
+  } catch (e) {
+    add("🟡", "heatmap", `could not read heatmap.json: ${(e as Error).message}`);
+  }
+
   // daemon running
   const pid = liveDaemonPid(p.lock);
   add("🟢", "runtime", pid ? `daemon running (pid ${pid})` : "daemon not running (start: organledger daemon)");
