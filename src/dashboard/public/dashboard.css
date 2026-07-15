@@ -93,13 +93,21 @@ select:focus {
   padding: 22px;
 }
 
+/* TIER 1: brand | view tabs | global actions — identical across all views */
 .topbar {
   display: flex;
-  align-items: end;
-  justify-content: space-between;
+  align-items: center;
   gap: 18px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--ol-border);
+}
+.brand { flex: 0 0 auto; }
+.topbar .topnav { margin: 0 auto 0 8px; }   /* tabs sit just after the brand, left-aligned */
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .eyebrow {
@@ -122,22 +130,36 @@ h1 {
   font-size: 36px;
 }
 
-.toolbar {
+/* TIER 2: contextual controls bar — swaps per view, fixed min-height so the
+   layout never jumps vertically when switching tabs */
+.subbar {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 8px;
+  min-height: 52px;
+  padding: 9px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--ol-border);
+}
+.controls-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
+.subbar-label { font-size: 13px; color: var(--ol-text-muted); }
 
-.toolbar input,
-.toolbar select {
+.subbar input,
+.subbar select {
   min-height: 34px;
   padding: 0 10px;
 }
 
 .segmented {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(64px, 1fr);
   min-height: 34px;
   overflow: hidden;
   border: 1px solid var(--ol-border);
@@ -518,9 +540,8 @@ strong,
     flex-direction: column;
   }
 
-  .toolbar {
-    justify-content: start;
-  }
+  .topbar .topnav { margin: 0; }
+  .topbar-actions { margin-left: 0; }
 
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -613,11 +634,10 @@ strong,
 .prov-verify { font-size: 11.5px; color: var(--ol-text-muted); border-top: 1px dashed var(--ol-border); padding-top: 6px; }
 
 /* ===== top-level views (看板 | 日志 | 热力图) ============================ */
-/* [hidden] must beat explicit display: values below (display:flex/contents would
-   otherwise defeat the attribute and leak hidden views/controls). */
+/* [hidden] must beat explicit display: values (display:flex would otherwise
+   defeat the attribute and leak hidden views/controls). */
 [hidden] { display: none !important; }
 .segmented.topnav { font-family: var(--ol-font-head); }
-.controls-group { display: contents; }
 
 /* ===== 日志 / Activity view ============================================== */
 .activity-view { display: flex; flex-direction: column; gap: 14px; }

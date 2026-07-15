@@ -12,68 +12,18 @@
   </head>
   <body>
     <main class="shell">
+      <!-- ===== TIER 1: primary header — IDENTICAL across all three views ===== -->
       <header class="topbar">
-        <div>
+        <div class="brand">
           <p class="eyebrow">OrganLedger</p>
           <h1>审计看板</h1>
         </div>
-        <div class="toolbar">
-          <div class="segmented topnav" role="group" aria-label="视图">
-            <button class="active" type="button" data-topview="board">看板</button>
-            <button type="button" data-topview="activity">日志</button>
-            <button type="button" data-topview="heatmap">热力图</button>
-          </div>
-
-          <!-- board-only controls -->
-          <div id="boardControls" class="controls-group">
-            <div class="segmented" role="group" aria-label="看板视图">
-              <button class="active" type="button" data-view="status">状态</button>
-              <button type="button" data-view="severity">严重度</button>
-            </div>
-            <select id="dateFilter" aria-label="日期">
-              <option value="recent">近 7 天</option>
-              <option value="today">今日</option>
-              <option value="all">全部</option>
-            </select>
-            <select id="systemFilter" aria-label="系统">
-              <option value="all">全部系统</option>
-              <option value="openclaw">OpenClaw</option>
-              <option value="hermes">Hermes</option>
-            </select>
-            <select id="severityFilter" aria-label="严重度">
-              <option value="all">全部等级</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            <select id="provenanceFilter" aria-label="来源">
-              <option value="all">全部来源</option>
-              <option value="upstream">上游更新</option>
-              <option value="agent">Agent 自改</option>
-            </select>
-            <input id="queryFilter" type="search" placeholder="文件或 change id" />
-          </div>
-
-          <!-- activity-only controls -->
-          <div id="activityControls" class="controls-group" hidden>
-            <select id="activityWindow" aria-label="活动窗口">
-              <option value="all">全部时间</option>
-              <option value="30d">近 30 天</option>
-              <option value="7d">近 7 天</option>
-            </select>
-          </div>
-
-          <!-- heatmap-only controls -->
-          <div id="heatmapControls" class="controls-group" hidden>
-            <span id="heatmapMeta" class="heatmap-meta">—</span>
-            <label class="switch">
-              <input id="heatmapRedactToggle" type="checkbox" checked />
-              <span>标记打码</span>
-            </label>
-            <button id="heatmapCmdButton" type="button" title="复制生成命令到终端运行">复制生成命令</button>
-          </div>
-
+        <nav class="segmented topnav" role="group" aria-label="视图">
+          <button class="active" type="button" data-topview="board">看板</button>
+          <button type="button" data-topview="activity">日志</button>
+          <button type="button" data-topview="heatmap">热力图</button>
+        </nav>
+        <div class="topbar-actions">
           <button id="refreshButton" type="button">刷新</button>
           <label class="switch">
             <input id="pollToggle" type="checkbox" />
@@ -82,6 +32,60 @@
           <button id="themeButton" type="button">暗色</button>
         </div>
       </header>
+
+      <!-- ===== TIER 2: contextual controls — swaps per view, fixed-height bar ===== -->
+      <div class="subbar" aria-label="视图控件">
+        <!-- board-only controls -->
+        <div id="boardControls" class="controls-group">
+          <div class="segmented" role="group" aria-label="看板视图">
+            <button class="active" type="button" data-view="status">状态</button>
+            <button type="button" data-view="severity">严重度</button>
+          </div>
+          <select id="dateFilter" aria-label="日期">
+            <option value="recent">近 7 天</option>
+            <option value="today">今日</option>
+            <option value="all">全部</option>
+          </select>
+          <select id="systemFilter" aria-label="系统">
+            <option value="all">全部系统</option>
+            <option value="openclaw">OpenClaw</option>
+            <option value="hermes">Hermes</option>
+          </select>
+          <select id="severityFilter" aria-label="严重度">
+            <option value="all">全部等级</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <select id="provenanceFilter" aria-label="来源">
+            <option value="all">全部来源</option>
+            <option value="upstream">上游更新</option>
+            <option value="agent">Agent 自改</option>
+          </select>
+          <input id="queryFilter" type="search" placeholder="文件或 change id" />
+        </div>
+
+        <!-- activity-only controls -->
+        <div id="activityControls" class="controls-group" hidden>
+          <span class="subbar-label">时间窗</span>
+          <select id="activityWindow" aria-label="活动窗口">
+            <option value="all">全部时间</option>
+            <option value="30d">近 30 天</option>
+            <option value="7d">近 7 天</option>
+          </select>
+        </div>
+
+        <!-- heatmap-only controls -->
+        <div id="heatmapControls" class="controls-group" hidden>
+          <span id="heatmapMeta" class="heatmap-meta">—</span>
+          <label class="switch">
+            <input id="heatmapRedactToggle" type="checkbox" checked />
+            <span>标记打码</span>
+          </label>
+          <button id="heatmapCmdButton" type="button" title="复制生成命令到终端运行">复制生成命令</button>
+        </div>
+      </div>
 
       <!-- ===== 看板 view ===== -->
       <section id="status" class="status loading" data-viewgroup="board">加载审计数据...</section>

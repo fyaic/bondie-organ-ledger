@@ -101,7 +101,12 @@ async function sendStatic(res: http.ServerResponse, fileName: string, theme: str
   const fullPath = path.join(PUBLIC_DIR, safeName);
   let body = await fs.readFile(fullPath, "utf8");
   if (safeName === "index.html") body = body.replace("__DEFAULT_THEME__", theme);
-  res.writeHead(200, { "content-type": CONTENT_TYPES[path.extname(safeName)] || "text/plain; charset=utf-8" });
+  res.writeHead(200, {
+    "content-type": CONTENT_TYPES[path.extname(safeName)] || "text/plain; charset=utf-8",
+    // always revalidate HTML/JS/CSS so an updated build (new routes/views) is
+    // never masked by a stale browser cache after `git pull` + restart.
+    "cache-control": "no-cache",
+  });
   res.end(body);
 }
 
