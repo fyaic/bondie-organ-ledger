@@ -19,6 +19,8 @@ export type HeatType = "dir" | "file";
 
 export interface HeatNode {
   name: string;           // display name; "•••" when redacted
+  rel_path: string;       // target-relative path (forward slashes) for OS reveal;
+                          // "" for the root, folded-aggregate, and redacted nodes
   type: HeatType;
   change_count: number;   // this node (leaf) or its descendants (dir), within window
   last_change: string | null; // most recent change day YYYY-MM-DD (null if none)
@@ -51,9 +53,11 @@ export interface HeatmapReport {
 }
 
 export interface HeatmapOptions {
-  window?: string;   // "all" | "Nd"
-  fullTree?: boolean;
-  redact?: string[]; // extra sensitive globs appended to the default set
+  window?: string;      // "all" | "Nd"
+  changedOnly?: boolean; // default false → full organ tree (D1); true = 1.7's changed-only
+  redactOn?: boolean;    // default false → real names for local navigation (D2);
+                         // true = redact sensitive globs (name→•••, rel_path→"")
+  redact?: string[];     // extra sensitive globs appended to the default set (implies redactOn)
 }
 
 // ---- bounds (D6) — never let node_modules / embedded .git blow up or hang ----
@@ -236,10 +240,23 @@ interface ConvertCtx {
   count: number;
   truncated: boolean;
   redactGlobs: RegExp[];
+  // `redacted` (sensitivity) is ALWAYS computed so the dashboard can offer a
+  // client-side "mask for screenshot" toggle. Names/paths are only physically
+  // masked in the JSON when redactOn (CLI --redact), for a sanitizable artifact.
+  redactOn: boolean;
 }
 
 function isRedacted(relPath: string, ctx: ConvertCtx): boolean {
   return matchAny(relPath, ctx.redactGlobs);
+}
+
+// D4: file-explorer ordering — directories before files, each name ascending.
+// (The folded-tail aggregate is appended by the caller AFTER this sort so it
+// always lands last regardless of its name.)
+function sortTree(nodes: HeatNode[]): void {
+  nodes.sort((a, b) =>
+    a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1,
+  );
 }
 
 // Recursively fold a BuildNode into a HeatNode. change_count = direct + Σ
@@ -254,7 +271,9 @@ function convert(
   ctx: ConvertCtx,
 ): HeatNode {
   ctx.count++;
-  const redacted = parentRedacted || (relPath !== "" && isRedacted(relPath, ctx));
+  // `sensitive` = matches a secret glob (or lives under one). Always computed;
+  // whether it actually masks the name/path depends on ctx.redactOn.
+  const sensitive = parentRedacted || (relPath !== "" && isRedacted(relPath, ctx));
 
   const childBuilds = [...node.children.values()];
   let heatChildren: HeatNode[] | undefined;
@@ -272,21 +291,27 @@ function convert(
         break;
       }
       const childRel = relPath ? `${relPath}/${cb.name}` : cb.name;
-      folded.push(convert(cb, childRel, depth + 1, redacted, ctx));
+      folded.push(convert(cb, childRel, depth + 1, sensitive, ctx));
     }
-    folded.sort((a, b) => b.change_count - a.change_count || a.name.localeCompare(b.name));
 
-    // D6 child cap: collapse the tail beyond MAX_CHILDREN into one aggregate node
+    // D6 child cap: rank by heat to keep the hottest MAX_CHILDREN, collapse the
+    // COLD tail into one aggregate node (so capping never hides the busy files).
+    let display: HeatNode[];
     if (folded.length > MAX_CHILDREN) {
-      const kept = folded.slice(0, MAX_CHILDREN);
-      const rest = folded.slice(MAX_CHILDREN);
+      const byHeat = [...folded].sort(
+        (a, b) => b.change_count - a.change_count || a.name.localeCompare(b.name),
+      );
+      const kept = byHeat.slice(0, MAX_CHILDREN);
+      const rest = byHeat.slice(MAX_CHILDREN);
       const restCount = rest.reduce((n, c) => n + c.change_count, 0);
       const restLast = rest.reduce<string | null>(
         (acc, c) => (c.last_change && (!acc || c.last_change > acc) ? c.last_change : acc),
         null,
       );
-      kept.push({
+      sortTree(kept); // D4: display dir-first, name asc…
+      kept.push({    // …then the folded-tail aggregate always sits last
         name: `… (已折叠 ${rest.length} 项)`,
+        rel_path: "",
         type: "dir",
         change_count: restCount,
         last_change: restLast,
@@ -294,12 +319,14 @@ function convert(
         redacted: false,
         truncated: true,
       });
-      heatChildren = kept;
+      display = kept;
       truncatedHere = true;
       ctx.truncated = true;
     } else {
-      heatChildren = folded;
+      sortTree(folded); // D4: file-explorer order — dir-first, name asc
+      display = folded;
     }
+    heatChildren = display;
 
     for (const c of heatChildren) {
       childSum += c.change_count;
@@ -312,13 +339,19 @@ function convert(
     .filter((d): d is string => !!d)
     .reduce<string | null>((acc, d) => (!acc || d > acc ? d : acc), null);
 
+  // physical masking only in redactOn (share) mode; otherwise real names/paths
+  // are emitted for local navigation and `redacted` is just an advisory flag.
+  const masked = ctx.redactOn && sensitive && relPath !== "";
   const heat: HeatNode = {
-    name: redacted && relPath !== "" ? "•••" : node.name,
+    name: masked ? "•••" : node.name,
+    // rel_path drives OS reveal; suppressed for the root and (in share mode) for
+    // sensitive nodes so a masked node never leaks its true path (D2/D-Reveal).
+    rel_path: (ctx.redactOn && sensitive) || relPath === "" ? "" : relPath,
     type: isDir ? "dir" : "file",
     change_count: node.direct + childSum,
     last_change: lastChange,
     depth,
-    redacted,
+    redacted: sensitive,
   };
   if (isDir) heat.children = heatChildren ?? [];
   if (truncatedHere || node.capped) heat.truncated = true;
@@ -328,12 +361,18 @@ function convert(
 // ---- public entry: build the whole report -----------------------------------
 export function buildHeatmap(cfg: Config, opts: HeatmapOptions = {}): HeatmapReport {
   const window = opts.window || "all";
-  const fullTree = !!opts.fullTree;
+  // D1: default scope is the full organ tree (looks like a file explorer);
+  // --changed-only restores 1.7's changed-paths-only view.
+  const fullTree = !opts.changedOnly;
+  // D2: sensitivity is ALWAYS computed (so the dashboard can mask on demand), but
+  // names/paths are only physically masked when redactOn (CLI --redact). Off by
+  // default: local navigation needs real names.
+  const redactOn = !!opts.redactOn || (opts.redact?.length ?? 0) > 0;
   const redactGlobs = buildRedactMatchers(opts.redact || []);
 
   const tickets = readJsonl<Ticket>(paths(cfg.ledger_home).tickets).filter(windowPredicate(window));
 
-  const ctx: ConvertCtx = { count: 0, truncated: false, redactGlobs };
+  const ctx: ConvertCtx = { count: 0, truncated: false, redactGlobs, redactOn };
   const budget = { added: 0, truncated: false };
 
   const targets: HeatmapTarget[] = cfg.targets.map((t) => {

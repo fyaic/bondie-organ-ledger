@@ -77,13 +77,13 @@ export function runDoctor(homeArg: string): { lines: string[]; healthy: boolean 
     add("🟡", "provenance", `could not scan sources: ${(e as Error).message}`);
   }
 
-  // heatmap: read-only freshness check of state/heatmap.json. Doctor does NOT
-  // rebuild it (that would traverse the target fs) — it only reports whether a
-  // snapshot exists, how many nodes, and if it was bounded/truncated.
+  // file-tree heatmap: read-only freshness check of state/heatmap.json. Doctor
+  // does NOT rebuild it (that would traverse the target fs) — it only reports
+  // whether a snapshot exists, how many nodes, and if it was bounded/truncated.
   try {
     const hmFile = paths(home).heatmap;
     if (!fs.existsSync(hmFile)) {
-      add("🟡", "heatmap", "no snapshot — run 'organledger heatmap [--full-tree]' to generate state/heatmap.json");
+      add("🟡", "heatmap", "no snapshot — run 'organledger heatmap' to generate the file-tree state/heatmap.json");
     } else {
       const hm = JSON.parse(fs.readFileSync(hmFile, "utf8"));
       const nodes = hm?.limits?.node_count ?? "?";

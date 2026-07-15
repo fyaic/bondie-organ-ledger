@@ -7,6 +7,9 @@ import type { BoardFilters } from "./data.ts";
 import { loadBoard, loadProvenance } from "./data.ts";
 import { loadActivity, loadActivityDay } from "./activity.ts";
 import { loadHeatmap } from "./heatmap-read.ts";
+import { resolveReveal, revealInOS } from "./reveal.ts";
+import { loadConfigSafe } from "../util.ts";
+import type { Target } from "../types.ts";
 
 export interface DashboardServerOptions {
   port?: number;
@@ -26,10 +29,30 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
   const port = options.port || 7377;
   const theme = options.theme || "light";
 
+  // Read-only load of the config once at startup, purely to map a target `system`
+  // to its home for /api/reveal. The dashboard never traverses the target fs or
+  // runs git — this just reads config.json (mirrors how ledgerHome is used).
+  const targets: Target[] = loadConfigSafe(options.ledgerHome || "")?.targets ?? [];
+
   const server = http.createServer(async (req, res) => {
     try {
       if (!req.url) return sendText(res, 400, "Bad Request");
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
+
+      // /api/reveal — the one endpoint that accepts POST (and GET); everything
+      // else is GET-only. Path-safety is enforced by resolveReveal before any
+      // process could spawn (head red line — see reveal.ts).
+      if (url.pathname === "/api/reveal") {
+        if (req.method !== "GET" && req.method !== "POST") {
+          return sendText(res, 405, "Method Not Allowed");
+        }
+        const system = url.searchParams.get("system") || "";
+        const relPath = url.searchParams.get("path") || "";
+        const decision = resolveReveal(system, relPath, targets);
+        if (!decision.ok) return sendJson(res, decision.status, { ok: false, error: decision.error });
+        revealInOS(decision.abs);
+        return sendJson(res, 200, { ok: true });
+      }
 
       if (req.method !== "GET") return sendText(res, 405, "Method Not Allowed");
       if (url.pathname === "/api/board") {

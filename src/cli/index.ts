@@ -203,15 +203,20 @@ async function main(): Promise<void> {
       return;
     }
     case "heatmap": {
-      // READ-ONLY privacy heatmap: derives change frequency from the ledger and
-      // (only with --full-tree) reads target DIRECTORY ENTRIES — never file
-      // contents. Writes state/heatmap.json for the dashboard. Safe while the
-      // daemon is up (no ledger writes, no guardSingleWriter).
+      // READ-ONLY file-tree heatmap: derives change frequency from the ledger and
+      // reads target DIRECTORY ENTRIES (names/types only) — never file contents.
+      // Writes state/heatmap.json for the dashboard's file-tree view. Safe while
+      // the daemon is up (no ledger writes, no guardSingleWriter).
+      //   default        full organ tree (excludes node_modules/.git/… + config.ignore)
+      //   --changed-only  only paths that actually changed (1.7's old default)
+      //   --redact[=glob] hide sensitive names (off by default; local nav needs real names)
+      //   --full-tree     accepted for back-compat (full tree is now the default)
       const window = S(flags["window"]) || "all";
-      const fullTree = !!flags["full-tree"];
+      const changedOnly = !!flags["changed-only"];
+      const redactOn = !!flags["redact"];
       const redactFlag = S(flags["redact"]);
       const redact = redactFlag ? redactFlag.split(",").map((g) => g.trim()).filter(Boolean) : [];
-      const report = buildHeatmap(cfg, { window, fullTree, redact });
+      const report = buildHeatmap(cfg, { window, changedOnly, redactOn, redact });
       if (flags["json"]) {
         console.log(JSON.stringify(report, null, 2));
       } else {
@@ -266,7 +271,7 @@ function printHelp(home: string): void {
     "  rollback --change <id> | --session <id> | --before <ts> [--confirm]",
     "  approve <change_id> | reject <change_id>",
     "  provenance [--fetch] [--json]   scan each organ folder's git source → state/provenance.json (read-only)",
-    "  heatmap [--window all|Nd] [--full-tree] [--redact <glob,...>] [--json]   privacy dir heatmap (color=frequency) → state/heatmap.json (read-only)",
+    "  heatmap [--window all|Nd] [--changed-only] [--redact[=glob,...]] [--json]   file-tree heatmap (color=frequency) → state/heatmap.json (read-only)",
     "  verify-ledger              validate hash chain",
     "  status                     quick summary"
   );

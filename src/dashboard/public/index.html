@@ -21,7 +21,7 @@
         <nav class="segmented topnav" role="group" aria-label="视图">
           <button class="active" type="button" data-topview="board">看板</button>
           <button type="button" data-topview="activity">日志</button>
-          <button type="button" data-topview="heatmap">热力图</button>
+          <button type="button" data-topview="heatmap">文件树</button>
         </nav>
         <div class="topbar-actions">
           <button id="refreshButton" type="button">刷新</button>
@@ -76,12 +76,20 @@
           </select>
         </div>
 
-        <!-- heatmap-only controls -->
+        <!-- file-tree-only controls -->
         <div id="heatmapControls" class="controls-group" hidden>
           <span id="heatmapMeta" class="heatmap-meta">—</span>
+          <div class="segmented" role="group" aria-label="展开层级">
+            <button id="treeExpandAll" type="button">全部展开</button>
+            <button id="treeCollapseAll" type="button">全部收起</button>
+          </div>
           <label class="switch">
-            <input id="heatmapRedactToggle" type="checkbox" checked />
-            <span>标记打码</span>
+            <input id="treeChangedOnly" type="checkbox" />
+            <span>只看改动</span>
+          </label>
+          <label class="switch" title="打码敏感文件名并禁止定位（截图/分享用）">
+            <input id="heatmapRedactToggle" type="checkbox" />
+            <span>打码</span>
           </label>
           <button id="heatmapCmdButton" type="button" title="复制生成命令到终端运行">复制生成命令</button>
         </div>
@@ -123,10 +131,10 @@
         <div id="activityTimeline" class="activity-timeline"></div>
       </section>
 
-      <!-- ===== 热力图 / Heatmap view ===== -->
-      <section id="heatmapView" class="heatmap-view" aria-label="隐私热力图" hidden>
-        <div id="heatmapStatus" class="status">加载热力图...</div>
-        <div class="heatmap-privacy-note">🔒 隐私视图：只显示结构与「改动频率」颜色，<strong>不暴露任何文件内容 / diff / 详情</strong>；敏感路径已打码（仍显热度）。点击矩形只看计数。</div>
+      <!-- ===== 文件树 / File-tree heatmap view ===== -->
+      <section id="heatmapView" class="heatmap-view" aria-label="文件树热力" hidden>
+        <div id="heatmapStatus" class="status">加载文件树...</div>
+        <div class="heatmap-privacy-note">🗂️ 文件树热力：结构＝真实文件夹，<strong>颜色越深＝改动越多</strong>。点文件夹展开/收起，<strong>点文件在资源管理器/访达中定位</strong>——看板本身不显示任何文件内容 / diff。</div>
         <div id="heatmapLegend" class="heatmap-legend"></div>
         <div id="heatmapCanvas" class="heatmap-canvas"></div>
       </section>

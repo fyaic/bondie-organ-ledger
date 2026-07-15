@@ -47,6 +47,9 @@ const state = {
   topview: "board",
   activity: null,
   heatmap: null,
+  // file-tree view state (Phase 1.8): which dirs are expanded (by rel_path),
+  // whether to show only changed nodes, and whether to mask sensitive names.
+  tree: { expanded: new Set(), changedOnly: false, mask: false, seeded: false },
 };
 
 const el = {
@@ -86,6 +89,9 @@ const el = {
   heatmapMeta: document.querySelector("#heatmapMeta"),
   heatmapRedactToggle: document.querySelector("#heatmapRedactToggle"),
   heatmapCmdButton: document.querySelector("#heatmapCmdButton"),
+  treeExpandAll: document.querySelector("#treeExpandAll"),
+  treeCollapseAll: document.querySelector("#treeCollapseAll"),
+  treeChangedOnly: document.querySelector("#treeChangedOnly"),
   drawer: document.querySelector("#drawer"),
   drawerBody: document.querySelector("#drawerBody"),
   drawerClose: document.querySelector("#drawerClose"),
@@ -114,7 +120,16 @@ function bindEvents() {
   }
   el.q.addEventListener("input", debounce(loadBoard, 180));
   el.activityWindow.addEventListener("change", loadActivity);
-  el.heatmapRedactToggle.addEventListener("change", () => { if (state.heatmap) renderHeatmap(state.heatmap); });
+  el.heatmapRedactToggle.addEventListener("change", () => {
+    state.tree.mask = el.heatmapRedactToggle.checked;
+    if (state.heatmap) renderHeatmap(state.heatmap);
+  });
+  el.treeChangedOnly.addEventListener("change", () => {
+    state.tree.changedOnly = el.treeChangedOnly.checked;
+    if (state.heatmap) renderHeatmap(state.heatmap);
+  });
+  el.treeExpandAll.addEventListener("click", () => expandAll(true));
+  el.treeCollapseAll.addEventListener("click", () => expandAll(false));
   el.heatmapCmdButton.addEventListener("click", copyHeatmapCommand);
   el.refresh.addEventListener("click", refreshCurrentView);
   el.poll.addEventListener("change", togglePolling);
@@ -634,6 +649,11 @@ async function loadHeatmap() {
   }
 }
 
+// Renders the heatmap.json HeatNode tree as a vertical, collapsible FILE TREE
+// (like an OS file explorer): folders first, indent = depth, a caret to expand /
+// collapse, and a heat-colored row background (deeper = more changes). Clicking a
+// file asks /api/reveal to locate it in the OS file manager. The board itself
+// NEVER shows file content — that is the Phase-1.8 red line.
 function renderHeatmap(payload) {
   if (!payload || payload.missing || !payload.report) {
     setHeatmapStatus("empty", "");
@@ -641,7 +661,7 @@ function renderHeatmap(payload) {
     el.heatmapLegend.replaceChildren();
     el.heatmapCanvas.replaceChildren(Object.assign(document.createElement("div"), {
       className: "heatmap-empty",
-      innerHTML: '暂无热力图快照 —— 在终端运行 <code>organledger heatmap --full-tree</code> 生成 <code>state/heatmap.json</code> 后点「刷新」。',
+      innerHTML: '暂无文件树快照 —— 在终端运行 <code>organledger heatmap</code> 生成 <code>state/heatmap.json</code> 后点「刷新」。',
     }));
     return;
   }
@@ -652,161 +672,162 @@ function renderHeatmap(payload) {
   const trunc = report.limits && report.limits.truncated ? " · 已折叠部分节点" : "";
   el.heatmapMeta.textContent = `窗口 ${report.window} · ${mode} · ${report.limits ? report.limits.node_count : "?"} 节点${trunc}`;
 
-  // global max heat for the log color scale
+  // global max heat for the log color scale (dirs aggregate — scan the whole tree)
   let maxHeat = 1;
   const scan = (n) => { if (n.change_count > maxHeat) maxHeat = n.change_count; (n.children || []).forEach(scan); };
   report.targets.forEach((t) => (t.root.children || []).forEach(scan));
-
   renderLegend(maxHeat);
 
-  // one treemap block per target
-  const blocks = report.targets.map((t) => {
-    const wrap = document.createElement("div");
-    wrap.className = "heatmap-target";
-    const title = document.createElement("div");
-    title.className = "heatmap-target-title";
-    title.innerHTML = `<strong>${escapeHtml(t.system)}</strong> <span class="ht-sub">${escapeHtml(t.home)} · ${t.root.change_count} 次改动</span>`;
-    const canvas = document.createElement("div");
-    canvas.className = "treemap";
-    wrap.append(title, canvas);
-    // defer layout until in DOM (needs measured width)
-    requestAnimationFrame(() => layoutTreemap(canvas, t.root, maxHeat));
-    return wrap;
-  });
+  // seed default expansion (first 2 levels) once per loaded report
+  if (!state.tree.seeded) {
+    seedExpanded(report);
+    state.tree.seeded = true;
+  }
+
+  const blocks = report.targets.map((t) => renderTargetTree(t, maxHeat));
   el.heatmapCanvas.replaceChildren(...blocks);
 }
 
-// squarified treemap of the children of `root`, nested to a bounded depth so the
-// DOM stays light. Area ∝ (change_count + 1) so zero-heat nodes still show as a
-// thin slice; color = log-scaled change_count. NO file bytes are ever used.
-const TREEMAP_MAX_RENDER_DEPTH = 3;
-
-function layoutTreemap(container, root, maxHeat) {
-  const width = container.clientWidth || 800;
-  const height = 420;
-  container.style.height = height + "px";
-  const frag = document.createDocumentFragment();
-  renderTreemapLevel(frag, root.children || [], 0, 0, width, height, maxHeat, 0);
-  container.replaceChildren(frag);
+// expand directories within the first two visible levels (root's children are
+// depth 1; expanding those reveals depth 2) — the file-explorer default.
+function seedExpanded(report) {
+  eachDir(report, (n) => { if (n.depth < 2) state.tree.expanded.add(n.rel_path); });
 }
 
-function renderTreemapLevel(parent, nodes, x, y, w, h, maxHeat, depth) {
-  if (w <= 1 || h <= 1 || !nodes.length) return;
-  const items = nodes
-    .map((n) => ({ node: n, value: n.change_count + 1 }))
-    .sort((a, b) => b.value - a.value);
-  const rects = squarify(items, x, y, w, h);
-  for (const r of rects) {
-    const cell = buildTreemapCell(r, maxHeat, depth);
-    parent.appendChild(cell.el);
-    // nest one level deeper for dirs, if the rect is big enough and within depth
-    const kids = r.node.children || [];
-    if (kids.length && depth + 1 < TREEMAP_MAX_RENDER_DEPTH && r.w > 34 && r.h > 34) {
-      const pad = 14; // leave room for the label header
-      renderTreemapLevel(cell.el, kids, r.x + 2, r.y + pad, r.w - 4, r.h - pad - 2, maxHeat, depth + 1);
-    }
+function eachDir(report, fn) {
+  const visit = (n) => { if (n.type === "dir" && n.rel_path) fn(n); (n.children || []).forEach(visit); };
+  report.targets.forEach((t) => (t.root.children || []).forEach(visit));
+}
+
+function expandAll(flag) {
+  if (!state.heatmap || !state.heatmap.report) return;
+  state.tree.expanded.clear();
+  if (flag) eachDir(state.heatmap.report, (n) => state.tree.expanded.add(n.rel_path));
+  renderHeatmap(state.heatmap);
+}
+
+function renderTargetTree(target, maxHeat) {
+  const wrap = document.createElement("div");
+  wrap.className = "heatmap-target";
+  const title = document.createElement("div");
+  title.className = "heatmap-target-title";
+  title.innerHTML = `<strong>${escapeHtml(target.system)}</strong> <span class="ht-sub">${escapeHtml(target.home)} · ${target.root.change_count} 次改动</span>`;
+  const treeEl = document.createElement("div");
+  treeEl.className = "file-tree";
+  const children = target.root.children || [];
+  if (!children.length) {
+    treeEl.appendChild(Object.assign(document.createElement("div"), {
+      className: "heatmap-empty",
+      textContent: "（此目标为空或未配置）",
+    }));
+  } else {
+    renderTreeLevel(treeEl, children, target.system, maxHeat);
   }
+  wrap.append(title, treeEl);
+  return wrap;
 }
 
-function buildTreemapCell(r, maxHeat, depth) {
-  const node = r.node;
-  const cell = document.createElement("div");
-  cell.className = "tm-cell" + (node.redacted ? " redacted" : "") + (node.truncated ? " truncated" : "");
-  cell.style.left = r.x + "px";
-  cell.style.top = r.y + "px";
-  cell.style.width = r.w + "px";
-  cell.style.height = r.h + "px";
+function renderTreeLevel(container, nodes, system, maxHeat) {
+  const list = state.tree.changedOnly ? nodes.filter((n) => n.change_count > 0) : nodes;
+  for (const node of list) container.appendChild(renderTreeNode(node, system, maxHeat));
+}
+
+function renderTreeNode(node, system, maxHeat) {
+  const isDir = node.type === "dir";
+  const hasChildren = isDir && !!(node.children && node.children.length);
+  const folded = !!node.truncated && !hasChildren; // the "… 已折叠 N 项" aggregate row
+  const expanded = hasChildren && state.tree.expanded.has(node.rel_path);
+  const masked = state.tree.mask && node.redacted;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "tree-item";
+
+  const row = document.createElement("div");
+  row.className = "tree-row" + (masked ? " masked" : "") + (folded ? " folded" : "");
+  row.style.paddingLeft = 6 + node.depth * 15 + "px";
+
+  // heat background + luminance-derived ink (deeper color = more changes). The
+  // ramp is theme-keyed; ink is chosen per-row so it stays readable on any shade.
   const rgb = heatColor(node.change_count, maxHeat);
-  cell.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-  const name = node.name;
-  const showRedactMark = node.redacted && el.heatmapRedactToggle.checked;
-  // label only when there's room
-  if (r.w > 42 && r.h > 20) {
-    const label = document.createElement("span");
-    label.className = "tm-label";
-    label.textContent = (showRedactMark ? "🔒 " : "") + name;
-    // contrast from the CELL's own luminance, not the page theme — a light-gold
-    // hot cell needs dark ink even in dark mode, a dark cold cell needs light ink.
-    const lum = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
-    label.style.color = lum > 0.55 ? "rgba(35,25,15,0.92)" : "rgba(245,238,225,0.95)";
-    label.style.textShadow = lum > 0.55
-      ? "0 1px 1px rgba(255,255,255,0.35)"
-      : "0 1px 1px rgba(0,0,0,0.5)";
-    cell.appendChild(label);
-  }
-  // click / hover → tooltip with COUNT ONLY. No content, no drill-down.
-  const tip = `${node.redacted ? "🔒 " : ""}${name} · ${node.change_count} 次改动${node.last_change ? " · 最近 " + node.last_change : ""}${node.truncated ? " · (已折叠)" : ""}`;
-  cell.title = tip;
-  cell.addEventListener("click", (e) => { e.stopPropagation(); showToast(tip); });
-  return { el: cell };
-}
+  row.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  const lum = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+  row.style.color = lum > 0.55 ? "rgba(30,22,14,0.92)" : "rgba(245,238,225,0.96)";
 
-// ---- squarified treemap layout (Bruls, Huizing, van Wijk) — hand-written -----
-function squarify(items, x, y, w, h) {
-  const out = [];
-  const total = items.reduce((s, it) => s + it.value, 0) || 1;
-  // scale values so their sum equals the rect area
-  const area = w * h;
-  const scaled = items.map((it) => ({ node: it.node, area: (it.value / total) * area }));
-  let rect = { x, y, w, h };
-  let row = [];
-  let i = 0;
-  const worst = (row, len) => {
-    if (!row.length) return Infinity;
-    const s = row.reduce((a, b) => a + b.area, 0);
-    const max = Math.max(...row.map((b) => b.area));
-    const min = Math.min(...row.map((b) => b.area));
-    const len2 = len * len;
-    const s2 = s * s;
-    return Math.max((len2 * max) / s2, s2 / (len2 * min));
-  };
-  while (i < scaled.length) {
-    const item = scaled[i];
-    const shortest = Math.min(rect.w, rect.h);
-    const withItem = [...row, item];
-    if (row.length === 0 || worst(withItem, shortest) <= worst(row, shortest)) {
-      row = withItem;
-      i++;
+  const caret = document.createElement("span");
+  caret.className = "tree-caret";
+  caret.textContent = hasChildren ? (expanded ? "▾" : "▸") : "";
+  row.appendChild(caret);
+
+  const icon = document.createElement("span");
+  icon.className = "tree-icon";
+  icon.textContent = folded ? "⋯" : isDir ? (expanded ? "📂" : "📁") : "📄";
+  row.appendChild(icon);
+
+  const name = document.createElement("span");
+  name.className = "tree-name";
+  name.textContent = masked ? "•••" : node.name;
+  row.appendChild(name);
+
+  const meta = document.createElement("span");
+  meta.className = "tree-meta";
+  if (node.change_count > 0) {
+    meta.textContent = `${node.change_count} 次` + (node.last_change ? ` · ${node.last_change}` : "");
+  }
+  row.appendChild(meta);
+
+  // interactions: dir → expand/collapse; file → OS reveal (never content)
+  if (folded) {
+    row.title = node.name;
+  } else if (isDir) {
+    row.classList.add("is-dir");
+    if (hasChildren) {
+      row.title = `${node.name} · ${node.change_count} 次改动 —— 点击展开/收起`;
+      row.addEventListener("click", () => {
+        if (expanded) state.tree.expanded.delete(node.rel_path);
+        else state.tree.expanded.add(node.rel_path);
+        renderHeatmap(state.heatmap);
+      });
     } else {
-      layoutRow(row, rect, out);
-      rect = shrink(rect, row);
-      row = [];
-    }
-  }
-  if (row.length) layoutRow(row, rect, out);
-  return out;
-}
-
-function layoutRow(row, rect, out) {
-  const sum = row.reduce((a, b) => a + b.area, 0);
-  const horizontal = rect.w >= rect.h;
-  if (horizontal) {
-    const rowW = sum / rect.h;
-    let cy = rect.y;
-    for (const it of row) {
-      const cellH = it.area / rowW;
-      out.push({ node: it.node, x: rect.x, y: cy, w: Math.max(0, rowW - 1), h: Math.max(0, cellH - 1) });
-      cy += cellH;
+      row.title = `${node.name} · ${node.change_count} 次改动`;
     }
   } else {
-    const rowH = sum / rect.w;
-    let cx = rect.x;
-    for (const it of row) {
-      const cellW = it.area / rowH;
-      out.push({ node: it.node, x: cx, y: rect.y, w: Math.max(0, cellW - 1), h: Math.max(0, rowH - 1) });
-      cx += cellW;
+    row.classList.add("is-file");
+    if (masked || !node.rel_path) {
+      row.title = masked ? "已打码，不可定位" : node.name;
+      if (masked) row.addEventListener("click", () => showToast("已打码，不可定位（关闭「打码」后可点开）"));
+    } else {
+      row.title = `${node.name} · ${node.change_count} 次改动 —— 点击在资源管理器/访达中定位`;
+      row.addEventListener("click", () => revealFile(system, node.rel_path));
     }
   }
+
+  wrapper.appendChild(row);
+
+  // children built lazily — only when the directory is expanded
+  if (expanded) {
+    const kids = document.createElement("div");
+    kids.className = "tree-children";
+    renderTreeLevel(kids, node.children, system, maxHeat);
+    wrapper.appendChild(kids);
+  }
+  return wrapper;
 }
 
-function shrink(rect, row) {
-  const sum = row.reduce((a, b) => a + b.area, 0);
-  if (rect.w >= rect.h) {
-    const rowW = sum / rect.h;
-    return { x: rect.x + rowW, y: rect.y, w: rect.w - rowW, h: rect.h };
+// POST /api/reveal → OS file manager selects the file. Content is NEVER shown in
+// the board; the operator inspects it in their own trusted file manager. Path
+// safety (must stay inside the target) is enforced server-side (reveal.ts).
+async function revealFile(system, relPath) {
+  try {
+    const res = await fetch(
+      `/api/reveal?system=${encodeURIComponent(system)}&path=${encodeURIComponent(relPath)}`,
+      { method: "POST" },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) showToast(`已在文件管理器中定位：${relPath}`);
+    else showToast(`无法定位（${data.error || "HTTP " + res.status}）`);
+  } catch (error) {
+    showToast(`定位失败：${error.message || "未知错误"}`);
   }
-  const rowH = sum / rect.w;
-  return { x: rect.x, y: rect.y + rowH, w: rect.w, h: rect.h - rowH };
 }
 
 // log-scaled color ramp keyed to the active theme (frequency only — never file
@@ -845,11 +866,11 @@ function renderLegend(maxHeat) {
 
 function copyHeatmapCommand() {
   const report = state.heatmap && state.heatmap.report;
-  const full = report && report.full_tree ? " --full-tree" : "";
+  const changed = report && !report.full_tree ? " --changed-only" : "";
   const win = report && report.window && report.window !== "all" ? ` --window ${report.window}` : "";
-  const cmd = `organledger heatmap${full}${win}`;
+  const cmd = `organledger heatmap${changed}${win}`;
   navigator.clipboard.writeText(cmd);
-  showToast(`已复制：${cmd} —— 在终端运行以重算（切窗口/整树请改参数）。`);
+  showToast(`已复制：${cmd} —— 在终端运行以重算文件树（切窗口请加 --window）。`);
 }
 
 function setHeatmapStatus(kind, text) {
