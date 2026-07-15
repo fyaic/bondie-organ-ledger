@@ -11,26 +11,31 @@ OrganLedger 站在 OpenClaw / Hermes 之外，把每次器官改动自动记成*
 
 ## 🚀 快速开始（新用户从这里）
 
+> 需要 **Node ≥ 24**（用原生 TS type-strip 直接跑 `.ts`，无构建步骤）。`node -v` 先确认。
+
 ```bash
-# 1) 装依赖（唯一第三方依赖 chokidar）
-npm install
+# 0) 装依赖 + 安装 CLI 命令 —— 一次即可，之后全局用 `organledger xxx`
+npm install            # 唯一第三方依赖 chokidar
+npm link               # 注册全局 `organledger` 命令（Win: 装到 npm 全局 bin，已在 PATH）
+organledger --help     # 验证：能打出命令列表就说明装好了
 
-# 2) 一键 onboard —— 探测你的 OpenClaw/Hermes、生成配置、建目录、设首扫水位、自检。全程零手写 JSON
+# 1) 一键 onboard —— 探测你的 OpenClaw/Hermes、生成配置、建目录、设首扫水位、自检。全程零手写 JSON
 #    首扫水位会往 target repo 写 1 条 scoped commit，交互模式下会先 y/N 询问（--yes 免询问，--no-snapshot 跳过）
-node src/cli/index.ts init
+organledger init
 
-# 3) 开始治理 —— 挂后台常驻，Agent 一改器官文件就自动记账（生成变更单 + git commit + 哈希链账本）
-node src/cli/index.ts daemon
+# 2) 开始治理 —— 挂后台常驻，Agent 一改器官文件就自动记账（生成变更单 + git commit + 哈希链账本）
+organledger daemon
 
-# 4) 看审计看板（另开一个终端）—— 浏览器打开 http://localhost:7377
-node src/cli/index.ts dashboard
+# 3) 看审计看板（另开一个终端）—— 浏览器打开 http://localhost:7377（看板 / 日志 / 热力图 三视图）
+organledger dashboard --open
 
-# 5) 日常复盘 / 撤销
-node src/cli/index.ts report --date today          # 今日改了啥
-node src/cli/index.ts rollback --change <change_id> # 改错了一键安全退回
+# 4) 日常复盘 / 撤销
+organledger report --date today          # 今日改了啥
+organledger rollback --change <change_id> # 改错了一键安全退回
 ```
 
-- 想把命令从 `node src/cli/index.ts xxx` 简化成 `organledger xxx`：`npm link`（一次即可）。
+- **没装 CLI 命令？** 没跑 `npm link` 前 `organledger` 不存在（会报"不是内部或外部命令"）。要么先 `npm link`，要么在仓库目录内用等价写法 `node src/cli/index.ts <cmd>`（或 `npm run ol -- <cmd>`）。
+- 卸载全局命令：仓库目录里 `npm unlink -g organledger`。
 - 所有数据都在 `~/.organledger`（配置 / 账本 / 日报 / 运行日志），要备份就备份 `ledger/` + `config.json`。
 - 遇到问题：`node src/cli/index.ts doctor`（健康自检）、`... paths`（东西都在哪）。
 - **它不是 skill**，是旁挂在 OpenClaw/Hermes 之外的独立治理进程；OpenClaw 感知不到它。
