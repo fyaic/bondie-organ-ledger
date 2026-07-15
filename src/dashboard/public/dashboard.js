@@ -150,7 +150,12 @@ function setTopView(topview) {
   el.heatmapView.hidden = !isHeatmap;
 
   if (isActivity && !state.activity) loadActivity();
-  if (isHeatmap && !state.heatmap) loadHeatmap();
+  // repaint on show (not just first load): the heat ramp is theme-keyed, so a
+  // theme toggle while on another tab must not leave stale-palette cells here.
+  if (isHeatmap) {
+    if (state.heatmap) renderHeatmap(state.heatmap);
+    else loadHeatmap();
+  }
 }
 
 function refreshCurrentView() {
@@ -442,6 +447,10 @@ function toggleTheme() {
   document.documentElement.className = `ol-${next}`;
   localStorage.setItem("ol-theme", next);
   syncThemeButton();
+  // the heatmap ramp is theme-keyed — repaint it so cold/hot swap palettes.
+  if (state.topview === "heatmap" && state.heatmap && state.heatmap.report) {
+    renderHeatmap(state.heatmap);
+  }
 }
 
 function syncThemeButton() {
@@ -707,7 +716,8 @@ function buildTreemapCell(r, maxHeat, depth) {
   cell.style.top = r.y + "px";
   cell.style.width = r.w + "px";
   cell.style.height = r.h + "px";
-  cell.style.background = heatColor(node.change_count, maxHeat);
+  const rgb = heatColor(node.change_count, maxHeat);
+  cell.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
   const name = node.name;
   const showRedactMark = node.redacted && el.heatmapRedactToggle.checked;
   // label only when there's room
@@ -715,6 +725,13 @@ function buildTreemapCell(r, maxHeat, depth) {
     const label = document.createElement("span");
     label.className = "tm-label";
     label.textContent = (showRedactMark ? "🔒 " : "") + name;
+    // contrast from the CELL's own luminance, not the page theme — a light-gold
+    // hot cell needs dark ink even in dark mode, a dark cold cell needs light ink.
+    const lum = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+    label.style.color = lum > 0.55 ? "rgba(35,25,15,0.92)" : "rgba(245,238,225,0.95)";
+    label.style.textShadow = lum > 0.55
+      ? "0 1px 1px rgba(255,255,255,0.35)"
+      : "0 1px 1px rgba(0,0,0,0.5)";
     cell.appendChild(label);
   }
   // click / hover → tooltip with COUNT ONLY. No content, no drill-down.
@@ -792,14 +809,18 @@ function shrink(rect, row) {
   return { x: rect.x, y: rect.y + rowH, w: rect.w, h: rect.h - rowH };
 }
 
-// log-scaled color ramp: light cream (low) → deep terracotta (high). Frequency
-// only — never file size. 0 heat = palest.
+// log-scaled color ramp keyed to the active theme (frequency only — never file
+// size). Returns an [r,g,b] array. 0 heat = coldest end of the ramp.
+//   · Light "Crème brûlée": cream (low) → deep terracotta (high)
+//   · Dark  "Ukiyo":        recessive sepia (low) → glowing gold (high)
+// The dark ramp deliberately starts near the page background so cold regions
+// recede and hot ones glow — matching the woodblock-print aesthetic.
 function heatColor(count, maxHeat) {
   const t = maxHeat > 1 ? Math.log(count + 1) / Math.log(maxHeat + 1) : 0;
-  const cream = [243, 233, 210];   // #f3e9d2
-  const terra = [166, 74, 42];     // deep terracotta
-  const mix = cream.map((c, i) => Math.round(c + (terra[i] - c) * t));
-  return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;
+  const dark = document.documentElement.classList.contains("ol-dark");
+  const low = dark ? [58, 48, 41] : [243, 233, 210];    // #3a3029 / #f3e9d2
+  const high = dark ? [224, 186, 134] : [166, 74, 42];  // #e0ba86 / terracotta
+  return low.map((c, i) => Math.round(c + (high[i] - c) * t));
 }
 
 function renderLegend(maxHeat) {
@@ -810,7 +831,8 @@ function renderLegend(maxHeat) {
     const count = Math.round((Math.exp(frac * Math.log(maxHeat + 1)) - 1));
     const sw = document.createElement("span");
     sw.className = "legend-swatch";
-    sw.style.background = heatColor(count, maxHeat);
+    const rgb = heatColor(count, maxHeat);
+    sw.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
     sw.title = `${count} 次`;
     swatches.push(sw);
   }
