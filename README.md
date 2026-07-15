@@ -1,4 +1,4 @@
-# OrganLedger（器官账本）
+# OrganLedger 智能体变更审计
 
 > 平台无关的 **Agent 器官文件自修改治理层** —— 给 AI Agent 自我修改的 skills / agents / cron / memory / flows 补上「**意图 → 审批 → 审计 → 回滚**」闭环。
 
