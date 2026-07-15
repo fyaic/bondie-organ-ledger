@@ -646,6 +646,19 @@ strong,
   }
 }
 
+/* honest scope note for the 本机 (local) 修改者 filter */
+.principal-note {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--ol-border);
+  border-left: 3px solid var(--ol-accent);
+  border-radius: var(--ol-radius-card);
+  background: var(--ol-accent-soft);
+  color: var(--ol-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* ── G5: 器官来源 / Sources panel (Creme brulee) ───────────────────────── */
 .sources-panel {
   background: var(--ol-bg-2);
@@ -663,18 +676,41 @@ strong,
 .sources-header h2 { font-size: 15px; margin: 0; color: var(--ol-text); }
 .sources-sub { font-size: 12px; color: var(--ol-text-muted); }
 .sources-empty { font-size: 13px; color: var(--ol-text-muted); font-family: ui-monospace, monospace; }
-.sources-table { display: flex; flex-direction: column; gap: 4px; }
+/* one shared grid so every column lines up vertically across all rows (each row
+   is a subgrid spanning the same tracks — NOT its own independent grid). */
+.sources-table {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, 1.3fr)  /* 器官目录 */
+    minmax(160px, 2.2fr)  /* remote   */
+    minmax(80px, 1fr)     /* 分支     */
+    72px                  /* HEAD     */
+    92px                  /* ↕ 上游   */
+    minmax(96px, auto);   /* 状态徽章 */
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: center;
+}
 .source-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.4fr) minmax(160px, 2.2fr) minmax(90px, 1fr) 68px 84px auto;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: center;
-  gap: 10px;
   padding: 7px 10px;
   border-radius: 8px;
   background: var(--ol-bg);
   font-size: 12.5px;
 }
 .source-row:hover { background: var(--ol-bg-3); }
+.source-row.head {
+  background: transparent;
+  padding-block: 0 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ol-text-muted);
+}
+.source-row.head:hover { background: transparent; }
 .src-dir { font-weight: 600; color: var(--ol-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .src-remote { color: var(--ol-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; }
 .src-branch { color: var(--ol-blue); font-family: ui-monospace, monospace; }

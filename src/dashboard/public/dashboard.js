@@ -66,6 +66,7 @@ const el = {
   severity: document.querySelector("#severityFilter"),
   provenance: document.querySelector("#provenanceFilter"),
   principal: document.querySelector("#principalFilter"),
+  principalNote: document.querySelector("#principalNote"),
   sources: document.querySelector("#sourcesPanel"),
   q: document.querySelector("#queryFilter"),
   refresh: document.querySelector("#refreshButton"),
@@ -173,6 +174,16 @@ function setTopView(topview) {
     if (state.heatmap) renderHeatmap(state.heatmap);
     else loadHeatmap();
   }
+  updatePrincipalNote();
+}
+
+// The 本机 (local) filter can only tell that a change came from THIS device — it
+// cannot say whether the user or a local agent made it. Surface that honestly as
+// a small note, shown only on the board when 本机 is the selected 修改者.
+function updatePrincipalNote() {
+  if (!el.principalNote) return;
+  const show = state.topview === "board" && el.principal && el.principal.value === "local";
+  el.principalNote.hidden = !show;
 }
 
 function refreshCurrentView() {
@@ -182,6 +193,7 @@ function refreshCurrentView() {
 }
 
 async function loadBoard() {
+  updatePrincipalNote();
   setStatus("loading", "加载审计数据...");
   try {
     const params = new URLSearchParams({
@@ -270,7 +282,11 @@ function renderSources(payload) {
 
   const table = document.createElement("div");
   table.className = "sources-table";
-  table.append(...allSources.map(renderSourceRow));
+  const headRow = document.createElement("div");
+  headRow.className = "source-row head";
+  headRow.innerHTML =
+    `<span>器官</span><span>Remote</span><span>分支</span><span>HEAD</span><span>↕ 上游</span><span class="src-badges">状态</span>`;
+  table.append(headRow, ...allSources.map(renderSourceRow));
   el.sources.replaceChildren(header, table);
 }
 

@@ -63,11 +63,11 @@
             <option value="upstream">上游更新</option>
             <option value="agent">Agent 自改</option>
           </select>
-          <select id="principalFilter" aria-label="主使">
-            <option value="all">全部主使</option>
+          <select id="principalFilter" aria-label="修改者">
+            <option value="all">修改者</option>
             <option value="im-user">IM 用户请求</option>
             <option value="autonomous">agent 自主</option>
-            <option value="local">本机（未验证）</option>
+            <option value="local">本机</option>
             <option value="unknown">未知</option>
           </select>
           <input id="queryFilter" type="search" placeholder="文件或 change id" />
@@ -103,6 +103,10 @@
       </div>
 
       <!-- ===== 看板 view ===== -->
+      <!-- shown only when the 修改者 filter = 本机: honest scope note -->
+      <div id="principalNote" class="principal-note" hidden>
+        🖥️ <strong>本机</strong>：只能判定这些改动来自<strong>本设备</strong>——无法区分是你（user）本人，还是本机上运行的某个智能体（CC / agent）所改。
+      </div>
       <section id="status" class="status loading" data-viewgroup="board">加载审计数据...</section>
 
       <section class="kpi-grid" aria-label="概览" data-viewgroup="board">
