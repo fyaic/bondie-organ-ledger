@@ -414,12 +414,16 @@ function openDrawer(card) {
     ${attributionBlock(card.attribution)}
     ${provenanceBlock(card.provenance)}
     ${actionsBlock(card)}
+    ${briefingBlock("此改动")}
   `;
 
-  // wire every copy-command button in the actions block
-  for (const btn of el.drawerBody.querySelectorAll(".command-button")) {
+  drawerBriefing = buildCardBriefing(card);
+  // wire copy-command buttons (approve/reject/rollback) — only those with a command
+  for (const btn of el.drawerBody.querySelectorAll(".command-button[data-command]")) {
     btn.addEventListener("click", () => copyCommand(btn.dataset.command));
   }
+  const briefBtn = el.drawerBody.querySelector(".briefing-button");
+  if (briefBtn) briefBtn.addEventListener("click", copyBriefing);
   el.drawer.classList.add("open");
   el.drawer.setAttribute("aria-hidden", "false");
   el.overlay.hidden = false;
@@ -480,6 +484,96 @@ function closeDrawer() {
 async function copyCommand(command) {
   await navigator.clipboard.writeText(command);
   showToast("命令已复制，只在终端执行。");
+}
+
+// ============================================================================
+// Coding-agent briefing — the drawer hand-off. The board has NO file content /
+// diff (by design), so this assembles a natural-language + record "简报" from the
+// SAME metadata already shown in the drawer (path / op / reason / hash / commit /
+// source / principal) and frames it as a task for the user's OWN local coding
+// agent: "here are the pointers — you go read the real diffs via git." Board =
+// read-only pointers; the deep, content-level analysis happens on the user's
+// machine. Nothing new is exposed; it just re-packages the drawer into a prompt.
+// ============================================================================
+let drawerBriefing = "";
+
+const BRIEFING_INTRO =
+`你是我本机的 coding agent。下面是 OrganLedger 审计看板导出的「Agent 器官文件」改动记录——只含元数据，不含文件内容 / diff（看板按设计从不读取文件内容）。
+请据此深入分析：这些改动实际改了什么、是否符合其声明的「原因」、是否触及敏感或删除、是否需要回滚。看板拿不到内容，请你在本机用 git / 文件系统核对真实改动。`;
+
+const BRIEFING_HOWTO =
+`## 如何深入（在本机执行）
+- 看板无文件内容——用 git 看真实改动：\`git -C <器官仓库根> show <commit>\`（commit 见每条记录）。
+- 用 before→after hash 定位 / 校验改了哪些文件。
+- 判断维度：改动是否与其「原因」一致？是否越权 / 触及敏感 / 删除？
+- 若判定需退回：\`organledger rollback --change <change_id> --confirm\`（回滚前自动建 safety 分支）。`;
+
+function briefingSource(p) {
+  if (!p) return "来源未标记";
+  if (["pull", "merge", "clone"].includes(p.kind)) {
+    return `上游更新（${KIND_LABEL[p.kind] || p.kind}）自 ${p.remote_url || "（无 remote）"} @${p.branch || "detached"}`;
+  }
+  return "本地改动（非上游拉取）";
+}
+
+function briefingPrincipal(a) {
+  const p = a && a.principal;
+  if (!p || p.kind === "unknown") return "主使未知（未插桩 / 无 turn）";
+  if (p.kind === "im-user") {
+    const ch = p.channel === "feishu" ? "飞书" : p.channel === "wecom" ? "企业微信" : (p.channel || "IM");
+    const v = p.verified && p.attestation === "platform-attested"
+      ? "已认证（渠道·运行时证言，非密码学证明）"
+      : "未认证";
+    return `IM 用户 ${ch}·${p.display || p.id || "?"}（${v}）`;
+  }
+  if (p.kind === "autonomous") return "agent 自主（有本轮上下文，无外部主使）";
+  return "本机改动（你 / Claude Code / 本地 agent，不区分）";
+}
+
+function briefingItem(c, index) {
+  const lines = [
+    `${index}. [${c.op}] ${c.file} · ${c.system}`,
+    `   - change_id: ${c.change_id} · 状态: ${statusLabel(c.status)} · 严重度: ${c.severity}`,
+  ];
+  if (c.reason) lines.push(`   - 原因（提交说明）: ${c.reason}`);
+  if (c.git_commit) lines.push(`   - git commit: ${c.git_commit}  ← \`git show ${c.git_commit}\` 看真实 diff`);
+  if (c.before_hash || c.after_hash) {
+    lines.push(`   - before→after: ${(c.before_hash || "∅").slice(0, 12)} → ${(c.after_hash || "∅").slice(0, 12)}`);
+  }
+  lines.push(`   - 来源: ${briefingSource(c.provenance)}`);
+  lines.push(`   - 主使: ${briefingPrincipal(c.attribution)}`);
+  lines.push(`   - 时间: ${c.created_at}`);
+  return lines.join("\n");
+}
+
+function buildDayBriefing(date, summary, items) {
+  const head = `# OrganLedger 改动简报 · ${date}（当天 ${items.length} 处改动）`;
+  const overview = summary && summary.length
+    ? `## 概览\n${summary.map((s) => `- ${s}`).join("\n")}`
+    : "";
+  const detail = `## 改动明细（${items.length} 条）\n${items.map((c, i) => briefingItem(c, i + 1)).join("\n\n")}`;
+  return [head, BRIEFING_INTRO, overview, detail, BRIEFING_HOWTO].filter(Boolean).join("\n\n");
+}
+
+function buildCardBriefing(card) {
+  const head = `# OrganLedger 改动简报 · ${card.file}`;
+  const detail = `## 改动记录\n${briefingItem(card, 1)}`;
+  return [head, BRIEFING_INTRO, detail, BRIEFING_HOWTO].filter(Boolean).join("\n\n");
+}
+
+// The drawer block that surfaces the button. `scopeLabel` = "当天" | "此改动".
+function briefingBlock(scopeLabel) {
+  return `
+    <div class="briefing-block">
+      <div class="actions-head">给 Coding Agent 深入分析 <span class="actions-sub">看板只有元数据（改了什么 / 在哪 / 来源 / 主使）。复制这段自然语言简报，粘贴给你本机的 coding agent，让它用 git 核对真实 diff 并判断安全性。</span></div>
+      <button class="briefing-button" type="button">📋 复制${escapeHtml(scopeLabel)}简报给 Coding Agent</button>
+    </div>`;
+}
+
+async function copyBriefing() {
+  if (!drawerBriefing) return;
+  await navigator.clipboard.writeText(drawerBriefing);
+  showToast("已复制改动简报 —— 粘贴给本机 coding agent 深入分析（含 git 核对指引，不含文件内容）。");
 }
 
 function detail(label, value) {
@@ -734,11 +828,16 @@ async function openActivityDay(date) {
         ${c.reason ? `<span class="di-reason">${escapeHtml(c.reason)}</span>` : ""}
       </div>
     `).join("");
+    const day = (state.activity && state.activity.days || []).find((d) => d.date === date);
     el.drawerBody.innerHTML = `
       <h2>${escapeHtml(date)} · 当天改动</h2>
       <span class="change">${items.length} 条 · 仅显示改了什么 / 在哪 / 来自哪个上游（不含文件内容）</span>
       <div class="day-items">${rows || '<div class="empty">（无）</div>'}</div>
+      ${items.length ? briefingBlock("当天") : ""}
     `;
+    drawerBriefing = items.length ? buildDayBriefing(date, day ? day.summary : [], items) : "";
+    const briefBtn = el.drawerBody.querySelector(".briefing-button");
+    if (briefBtn) briefBtn.addEventListener("click", copyBriefing);
   } catch (error) {
     el.drawerBody.innerHTML = `<h2>${escapeHtml(date)}</h2><div class="status error">读取失败：${escapeHtml(error.message || "未知错误")}</div>`;
   }

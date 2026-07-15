@@ -205,6 +205,14 @@ organledger heatmap --redact "<glob>,..." # 打码敏感名并置空 rel_path（
 - **多器官可选**：文件树按 target 分组，每个 organ（openclaw / hermes / …）一棵根；hermes 等**可选**，配置了就出现，`HeatmapTarget.exists=false` 时前端显示"目录不存在——配置并落地后自动出现"（不崩、不造假）。
 - **看板只读自证**：`grep -r "spawn\|child_process\|\"git\"" src/dashboard/` → spawn **仅** `reveal.ts`；`readdir` **仅**账本态（held/reports），**零** target 遍历、**零** git、**零**内联内容入口。
 
+## 抽屉简报 → 本机 Coding Agent（Phase 1.9）
+
+用户想把一次（或一天）的改动**一键复制成一段自然语言简报**，粘贴给自己**本机的 coding agent** 做更深的内容级分析。核心 hand-off：**看板给指针，本机 agent 取内容**。
+
+- **两处入口**：单条改动抽屉「📋 复制此改动简报」；「日志」当天改动抽屉「📋 复制当天简报」。纯前端，无新端点、无后端改动。
+- **简报 = 元数据 + 自然语言任务框架**：概览（当天白话摘要）+ 逐条记录（path / op / system / change_id / 状态 / severity / **原因** / **git commit** / **before→after hash** / 来源 / 主使 / 时间）+「如何深入」段（教 agent 用 `git -C <器官仓库> show <commit>` 取真实 diff、按 hash 校验、判断改动是否忠实于「原因」、必要时 `organledger rollback --change <id> --confirm`）。
+- **红线一致**：简报字段**全部来自抽屉已展示的元数据**，**不新增暴露**；看板按定义无文件内容/diff，故简报**只带指针**，内容级分析交给用户可信本机的 agent（已断言 `/api/activity/day` payload 无 content/diff/patch 字段）。
+
 ## 数据 / 日志布局（v2，五类分区）
 
 产品级第一原则：**config / audit / state / logs / cache 分区落盘**，生命周期各异（`04-数据与日志布局规范.md`）。
@@ -259,7 +267,7 @@ organledger dashboard            # → http://localhost:7377（只读，仅 127.
 ```
 
 顶部**三视图 tab（看板 / 日志 / 文件树）**，默认「看板」。
-- **看板**：**按 status 分列**（待确认 / 已观测 / 已批准 / 已拒绝 / 已回滚），卡片按 severity 左色条，**待确认列 terracotta 聚光**；顶部 KPI（待确认 / 改动数 / 涉及文件 / 严重度 / 系统分布）+ 近期日报 + 器官来源面板；点卡片看细节抽屉（reason / hash / commit / session / author 未验证）；筛选（近7天·今日·全部 / 系统 / 严重度 / 关键字）；亮暗双模。
+- **看板**：**按 status 分列**（待确认 / 已观测 / 已批准 / 已拒绝 / 已回滚），卡片按 severity 左色条，**待确认列 terracotta 聚光**；顶部 KPI（待确认 / 改动数 / 涉及文件 / 严重度 / 系统分布）+ 近期日报 + 器官来源面板；点卡片看细节抽屉（reason / hash / commit / session / author 未验证 + 一键复制简报给本机 coding agent）；筛选（近7天·今日·全部 / 系统 / 严重度 / 关键字）；亮暗双模。
 - **日志**：见「活动日志（Phase 1.7）」——白话按天日志（颜色=频率、无内容/diff）。
 - **文件树**：见「文件树热力 + OS 定位（Phase 1.8）」——竖排可折叠文件树，行色越深=改动越多，点文件夹展开/收起、**点文件在资源管理器/访达定位**（看板不显示文件内容）。
 

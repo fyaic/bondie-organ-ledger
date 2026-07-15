@@ -592,6 +592,27 @@ strong,
 }
 .command-button:hover { filter: brightness(1.03); }
 
+/* ── drawer: hand-off briefing for a local coding agent ───────────────── */
+.briefing-block {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ol-border);
+}
+.briefing-button {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--ol-accent);
+  border-radius: var(--ol-radius);
+  background: var(--ol-accent-soft);
+  color: var(--ol-accent);
+  font-family: var(--ol-font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.briefing-button:hover { filter: brightness(1.03); }
+
 .toast {
   position: fixed;
   right: 18px;
