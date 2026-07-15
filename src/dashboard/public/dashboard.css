@@ -665,6 +665,32 @@ strong,
 .prov-move code { font-family: ui-monospace, monospace; color: var(--ol-text); }
 .prov-verify { font-size: 11.5px; color: var(--ol-text-muted); border-top: 1px dashed var(--ol-border); padding-top: 6px; }
 
+/* principal (who-caused-it) — Phase 2. Honest, layered; never claims "proven". */
+.principal-pill { font-weight: 600; }
+.principal-pill.im { background: rgba(var(--ol-green-rgb), 0.16); color: var(--ol-green); }
+.principal-pill.auto { background: rgba(91, 168, 190, 0.18); color: var(--ol-cyan); }
+.principal-pill.local { background: var(--ol-accent-soft); color: var(--ol-text-muted); }
+.principal-pill.unknown { background: rgba(160, 160, 160, 0.14); color: var(--ol-text-muted); }
+.attribution {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--ol-border);
+  background: var(--ol-bg-2);
+}
+.attribution.im { border-left: 3px solid var(--ol-green); }
+.attribution.auto { border-left: 3px solid var(--ol-cyan); }
+.attribution.local { border-left: 3px solid var(--ol-text-muted); }
+.attribution.unknown { border-left: 3px solid var(--ol-border); }
+.attr-head { margin-bottom: 6px; }
+.attr-title { font-weight: 600; color: var(--ol-text); }
+.attr-who { font-size: 13px; color: var(--ol-text); margin-bottom: 4px; }
+.attr-who code { font-family: ui-monospace, monospace; }
+.attr-verify { font-size: 12px; color: var(--ol-text-muted); }
+.attr-caveat { font-size: 11.5px; color: var(--ol-text-muted); margin-top: 4px; }
+.attr-match { font-size: 11.5px; color: var(--ol-text-muted); border-top: 1px dashed var(--ol-border); padding-top: 6px; margin-top: 6px; }
+.attr-match.weak { color: var(--ol-orange, #c08a3e); }
+
 /* ===== top-level views (看板 | 日志 | 热力图) ============================ */
 /* [hidden] must beat explicit display: values (display:flex would otherwise
    defeat the attribute and leak hidden views/controls). */

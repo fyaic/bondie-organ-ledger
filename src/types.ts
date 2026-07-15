@@ -28,6 +28,11 @@ export interface EventCtx {
   reason: string | null;
   pid: number | null;
   argv: string[] | null;
+  // Phase 2 (identity/principal). OPTIONAL + additive: in-band writers that can
+  // read the current turn set it so normalizer can JOIN the principal-turn record;
+  // out-of-band writes and shims that can't resolve a turn leave it undefined →
+  // the write honestly degrades to unknown/local (never a guessed principal).
+  turn_id?: string | null;
 }
 
 // ledger/tickets.jsonl — hash-chained change tickets (source of truth).
@@ -52,6 +57,10 @@ export interface Ticket {
   // no such key → canonicalJson omits undefined keys → their bytes (and the hash
   // chain) are unchanged. Only backfilled/source-tagged tickets carry it.
   provenance?: Provenance;
+  // Phase 2 attribution (principal/who-caused-it) dimension. OPTIONAL + additive,
+  // same byte-safety guarantee as provenance. Carries its OWN verified semantics
+  // (Attribution.principal.verified), independent of TicketAuthor (still false).
+  attribution?: Attribution;
 }
 
 // Provenance = the source (where this change came from), a dimension SEPARATE
@@ -79,6 +88,64 @@ export interface TicketAuthor {
   type: AuthorType;
   id: string | null;
   verified: false;               // ← literal false; Phase 1 must never be true
+}
+
+// ---- Phase 2: three-axis attribution (writer / principal / autonomy) --------
+// The core Phase 2 concept: the WRITER (whose process wrote the bytes) is NOT the
+// PRINCIPAL (whose request caused it). An agent writing on behalf of an external
+// IM user has writer=agent-runtime but principal=that-IM-user. Intent cannot be
+// reconstructed from the filesystem after the fact — it must be captured in-band
+// at write time (turn record) and JOIN-ed here. Attribution is an OPTIONAL,
+// additive ticket field with its OWN verified semantics, kept strictly separate
+// from provenance (source) and TicketAuthor (still literal false).
+//
+// HONESTY BOUNDARY (the head red line — locked by tests in attribution.test.ts):
+//   * principal.verified may be true ONLY for kind:"im-user" with a platform
+//     channel AND attestation:"platform-attested". Everything else is false.
+//   * LOCAL writes are ALWAYS kind:"local", verified:false — we never guess
+//     whether it was you, Claude Code, or the agent acting autonomously.
+//   * autonomy:"requested" proves a principal's message existed THIS turn; it does
+//     NOT prove the write faithfully reflects that request (faithfulness unproven).
+//   * attestation:"platform-attested" = platform-authenticated IM identity +
+//     agent runtime self-report. A compromised runtime can forge it → this is NOT
+//     cryptographic non-repudiation. Never render it as "proven".
+export type WriterKind = "agent-runtime" | "local" | "git" | "unknown";
+export type PrincipalKind = "im-user" | "local" | "autonomous" | "unknown";
+export type Channel = "wecom" | "feishu" | "local" | "cron" | "git" | null;
+export type Autonomy = "requested" | "self" | "unknown";
+export type Attestation = "platform-attested" | "unverified" | null;
+// JOIN strength between the write event and the principal-turn record (honest):
+// "turn-id" exact > "session" > "time-window" (weak, nearest-in-session) > "none".
+export type AttributionMatch = "turn-id" | "session" | "time-window" | "none";
+
+export interface Principal {
+  kind: PrincipalKind;
+  channel: Channel;
+  id: string | null;          // platform user id: wecom userid / feishu open_id; local/autonomous = null
+  display: string | null;     // best-effort display name
+  verified: boolean;          // ONLY im-user + platform-attested may be true; local/autonomous/unknown = false
+  attestation: Attestation;   // verified:true ⇒ "platform-attested"; else "unverified"|null
+}
+
+export interface Attribution {
+  writer: WriterKind;
+  principal: Principal;
+  autonomy: Autonomy;         // "requested" ≠ faithful (best-effort; faithfulness unproven)
+  turn_id: string | null;     // the joined turn; null = not correlated
+  match: AttributionMatch;    // JOIN strength (honestly labelled; time-window is weak)
+}
+
+// principal-turn contract (04.2). Written by IM entrypoints OUTSIDE this repo
+// (WeCom bridge / feishu hook) — append-only, one record per external message,
+// BEFORE the agent processes it. Read by the daemon's PrincipalIndex, JOIN-ed
+// onto in-band organ writes by turn_id (exact) → session_id → time-window (weak).
+// The contract is stable: fields never removed; a missing stream or missing field
+// degrades to principal=unknown (never a crash, never a guessed principal).
+export interface TurnRecord {
+  turn_id: string;            // globally unique; convention <channel>:<msgid>
+  session_id: string | null;  // the agent session this turn maps to (JOIN fallback)
+  ts_start: string;           // ISO8601 UTC — when the entrypoint received the message
+  principal: Principal;       // im-user + platform-attested for real IM channels
 }
 
 export interface SeverityRule {

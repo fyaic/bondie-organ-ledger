@@ -43,6 +43,10 @@ def emit_organ_event(
     *,
     origin: Optional[str] = None,       # foreground | background_review | cron | user
     session_id: Optional[str] = None,
+    turn_id: Optional[str] = None,      # Phase 2: current IM/agent turn — lets the core
+                                        # JOIN the principal (who requested this write).
+                                        # None when the runtime can't resolve a turn →
+                                        # the write HONESTLY degrades to unknown/self.
     author_hint: Optional[str] = None,  # agent | user | cron
     reason: Optional[str] = None,
     before_hash: Optional[str] = None,
@@ -67,6 +71,9 @@ def emit_organ_event(
             "reason": reason,
             "pid": pid if pid is not None else os.getpid(),
             "argv": None,
+            # Phase 2: optional/additive. Absent (or null) → core can't JOIN a
+            # principal → the write is attributed unknown/self, never guessed.
+            "turn_id": turn_id,
         },
     }
     target = inbox or _default_inbox()

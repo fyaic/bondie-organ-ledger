@@ -118,6 +118,7 @@ function parseFilters(url: URL): BoardFilters {
     system: (url.searchParams.get("system") || "all") as BoardFilters["system"],
     severity: (url.searchParams.get("severity") || "all") as BoardFilters["severity"],
     provenance: (url.searchParams.get("provenance") || "all") as BoardFilters["provenance"],
+    principal: (url.searchParams.get("principal") || "all") as BoardFilters["principal"],
     q: url.searchParams.get("q") || "",
   };
 }

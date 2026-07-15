@@ -6,6 +6,7 @@ import { Inbox } from "./inbox.ts";
 import { Ledger } from "./ledger.ts";
 import { Committer } from "./committer.ts";
 import { Pipeline } from "./pipeline.ts";
+import { PrincipalIndex } from "./principal-index.ts";
 import { getLogger, type Logger } from "../onboard/logger.ts";
 import type { Config } from "../types.ts";
 
@@ -15,6 +16,7 @@ export class Daemon {
   ledger: Ledger;
   committer: Committer;
   pipeline: Pipeline;
+  principalIndex: PrincipalIndex;
   log: Logger;
   private lockPath: string;
   private draining = false;
@@ -29,7 +31,11 @@ export class Daemon {
     this.inbox = new Inbox(home);
     this.ledger = new Ledger(home);
     this.committer = new Committer(this.cfg, this.ledger, this.log);
-    this.pipeline = new Pipeline(this.cfg, this.ledger, this.committer);
+    // Phase 2: read side of the principal-turn contract. Missing/empty stream is
+    // fine — every write then degrades to unknown/local (contract-first).
+    this.principalIndex = new PrincipalIndex(paths(home).principalTurns);
+    this.principalIndex.refresh();
+    this.pipeline = new Pipeline(this.cfg, this.ledger, this.committer, this.principalIndex);
   }
 
   // acquire single-instance lock; returns false if another live daemon holds it.

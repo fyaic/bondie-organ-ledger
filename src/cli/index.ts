@@ -20,6 +20,7 @@ import { buildHeatmap, writeHeatmapReport, formatHeatmapSummary } from "../onboa
 import { printPaths, runReset, runUninstall } from "../onboard/lifecycle.ts";
 import { installAutostart } from "../onboard/autostart.ts";
 import { startDashboardServer } from "../dashboard/server.ts";
+import { buildAttributionStats } from "../dashboard/data.ts";
 import type { Config } from "../types.ts";
 
 function parseFlags(argv: string[]): Record<string, string | boolean> {
@@ -229,6 +230,31 @@ async function main(): Promise<void> {
       if (!flags["json"]) console.log(`\n[written] ${out}`);
       return;
     }
+    case "attribution": {
+      // Honest distribution over the principal (who-caused-it) axis. Un-attributed
+      // tickets count as unknown — NO silent gaps. `verified` here means only
+      // "im-user + platform-attested" (channel-authenticated + runtime self-report,
+      // NOT cryptographic proof); local is always unverified by design.
+      const date = (flags["date"] as string) || "all";
+      const stats = buildAttributionStats(cfg.ledger_home, { date });
+      if (flags["json"]) {
+        console.log(JSON.stringify(stats, null, 2));
+        return;
+      }
+      const pct = (n: number) => (stats.total ? `${((n / stats.total) * 100).toFixed(1)}%` : "0%");
+      console.log(`attribution stats (date=${stats.date}) — ${stats.total} ticket(s)`);
+      console.log(`  主使 principal:`);
+      console.log(`    👤 IM 用户请求 im-user   : ${stats.byKind["im-user"]} (${pct(stats.byKind["im-user"])})`);
+      console.log(`    🤖 agent 自主 autonomous : ${stats.byKind.autonomous} (${pct(stats.byKind.autonomous)})`);
+      console.log(`    🖥 本机 local(未验证)     : ${stats.byKind.local} (${pct(stats.byKind.local)})`);
+      console.log(`    ❔ 未知 unknown(未插桩)   : ${stats.byKind.unknown} (${pct(stats.byKind.unknown)})   ← no silent gaps`);
+      const channels = Object.keys(stats.byChannel);
+      if (channels.length) console.log(`  渠道 channel: ${channels.map((c) => `${c}=${stats.byChannel[c]}`).join(", ")}`);
+      console.log(`  关联强度 match: ${Object.keys(stats.byMatch).map((m) => `${m}=${stats.byMatch[m]}`).join(", ")}`);
+      console.log(`  ✅ 已认证主使 verified(=im-user+platform-attested,非密码学证明): ${stats.verifiedAttested} (${pct(stats.verifiedAttested)})`);
+      console.log(`  📩 autonomy=requested(据本轮请求·忠实性未证): ${stats.requested}`);
+      return;
+    }
     case "verify-ledger": {
       const v = new Ledger(cfg.ledger_home).verify();
       console.log(v.ok ? `OK: ${v.detail}` : `TAMPER: ${v.detail}`);
@@ -272,6 +298,7 @@ function printHelp(home: string): void {
     "  approve <change_id> | reject <change_id>",
     "  provenance [--fetch] [--json]   scan each organ folder's git source → state/provenance.json (read-only)",
     "  heatmap [--window all|Nd] [--changed-only] [--redact[=glob,...]] [--json]   file-tree heatmap (color=frequency) → state/heatmap.json (read-only)",
+    "  attribution --stats [--date today|YYYY-MM-DD] [--json]   principal (who-caused-it) distribution (im-user/autonomous/local/unknown; honest, no silent gaps)",
     "  verify-ledger              validate hash chain",
     "  status                     quick summary"
   );

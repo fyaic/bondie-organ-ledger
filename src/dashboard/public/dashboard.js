@@ -65,6 +65,7 @@ const el = {
   system: document.querySelector("#systemFilter"),
   severity: document.querySelector("#severityFilter"),
   provenance: document.querySelector("#provenanceFilter"),
+  principal: document.querySelector("#principalFilter"),
   sources: document.querySelector("#sourcesPanel"),
   q: document.querySelector("#queryFilter"),
   refresh: document.querySelector("#refreshButton"),
@@ -115,7 +116,7 @@ function bindEvents() {
   for (const button of el.viewButtons) {
     button.addEventListener("click", () => setView(button.dataset.view));
   }
-  for (const control of [el.date, el.system, el.severity, el.provenance]) {
+  for (const control of [el.date, el.system, el.severity, el.provenance, el.principal].filter(Boolean)) {
     control.addEventListener("change", loadBoard);
   }
   el.q.addEventListener("input", debounce(loadBoard, 180));
@@ -188,6 +189,7 @@ async function loadBoard() {
       system: el.system.value,
       severity: el.severity.value,
       provenance: el.provenance.value,
+      principal: el.principal ? el.principal.value : "all",
       q: el.q.value.trim(),
     });
     const response = await fetch(`/api/board?${params.toString()}`);
@@ -354,11 +356,27 @@ function renderCard(card) {
     <span class="meta">
       ${pill(card.severity)}
       ${pill(card.system)}
+      ${principalBadge(card.attribution)}
     </span>
     <span class="time">${formatDate(card.created_at)}</span>
   `;
   button.addEventListener("click", () => openDrawer(card));
   return button;
+}
+
+// Compact principal (who-caused-it) badge for cards. Honest, four buckets:
+//   👤 IM user (channel-authenticated) / 🤖 agent autonomous / 🖥 local (unverified) / ❔ unknown.
+// A card with no attribution is treated as unknown (never silently blank).
+function principalBadge(a) {
+  const p = a && a.principal;
+  if (!p || p.kind === "unknown") return `<span class="pill principal-pill unknown" title="主使未知（未插桩/无 turn）">❔ 主使未知</span>`;
+  if (p.kind === "im-user") {
+    const ch = p.channel === "feishu" ? "飞书" : p.channel === "wecom" ? "企业微信" : (p.channel || "IM");
+    const name = escapeHtml(p.display || p.id || "?");
+    return `<span class="pill principal-pill im" title="平台认证·运行时证言（非密码学证明）">👤 ${escapeHtml(ch)}·${name}</span>`;
+  }
+  if (p.kind === "autonomous") return `<span class="pill principal-pill auto" title="agent 自主（有 turn 无主使）">🤖 agent 自主</span>`;
+  return `<span class="pill principal-pill local" title="本机改动，不区分你/CC/agent">🖥 本机（未验证）</span>`;
 }
 
 function openDrawer(card) {
@@ -378,6 +396,7 @@ function openDrawer(card) {
       ${detail("Author", card.author_verified ? "已验证" : "未验证署名")}
       ${detail("时间", card.created_at)}
     </div>
+    ${attributionBlock(card.attribution)}
     ${provenanceBlock(card.provenance)}
     ${card.status === "held" ? `<button class="command-button" type="button" data-command="${escapeAttr(command)}">复制 ${escapeHtml(command)}</button>` : ""}
   `;
@@ -429,6 +448,57 @@ function provenanceBlock(p) {
       <div class="prov-src">来自 <code>${escapeHtml(p.remote_url || "（无 remote）")}</code> <span class="prov-branch">@${escapeHtml(p.branch || "detached")}</span></div>
       ${move}
       <div class="prov-verify">✅ 来源已验证（内容寻址）· ⚠️ 身份未验证（谁改的仍不可证）</div>
+    </div>
+  `;
+}
+
+const MATCH_LABEL = {
+  "turn-id": "精确关联（turn-id）", "session": "会话关联", "time-window": "时间窗关联（弱）", "none": "未关联",
+};
+
+// Drawer attribution block: the PRINCIPAL (who-caused-it) dimension. The copy is
+// deliberately honest — it separates "whose hand wrote it" (writer) from "whose
+// request caused it" (principal), never claims local changes are attributable,
+// marks attested (not "proven"), flags weak time-window matches, and states that
+// "requested" does NOT prove the write was faithful to the request.
+function attributionBlock(a) {
+  if (!a) return "";
+  const p = a.principal;
+  const writerLabel = { "agent-runtime": "agent 运行时", "local": "本机", "git": "git", "unknown": "未知" }[a.writer] || a.writer;
+  let who, verifyLine, cls;
+  if (p.kind === "im-user") {
+    const ch = p.channel === "feishu" ? "飞书" : p.channel === "wecom" ? "企业微信" : (p.channel || "IM");
+    who = `👤 来自 ${escapeHtml(ch)} 用户 <code>${escapeHtml(p.display || p.id || "?")}</code> 的请求 · 经 ${escapeHtml(writerLabel)} 执行`;
+    verifyLine = p.verified && p.attestation === "platform-attested"
+      ? `✅ 已认证（渠道认证·运行时证言）—— <em>非密码学证明，运行时被攻陷可伪造</em>`
+      : `⚠️ 未认证的 IM 主使`;
+    cls = "im";
+  } else if (p.kind === "autonomous") {
+    who = `🤖 agent 自主（有本轮上下文但无外部主使）`;
+    verifyLine = `⚠️ 未验证 · 自主度：自发（self）`;
+    cls = "auto";
+  } else if (p.kind === "local") {
+    who = `🖥 本机改动（你 / Claude Code / agent 本地，<strong>不区分</strong>）`;
+    verifyLine = `⚠️ 本机永远未验证（by design，不猜是谁）`;
+    cls = "local";
+  } else {
+    who = `❔ 主使未知（未插桩 / 无 turn）`;
+    verifyLine = `⚠️ 未关联到任何主使记录`;
+    cls = "unknown";
+  }
+  const autonomyLine = a.autonomy === "requested"
+    ? `<div class="attr-caveat">📩 据本轮请求（<strong>忠实性未证</strong>：能证有该请求，证不了写入忠实于请求）</div>`
+    : "";
+  const matchLine = (a.match && a.match !== "none")
+    ? `<div class="attr-match ${a.match === "time-window" ? "weak" : ""}">关联强度：${escapeHtml(MATCH_LABEL[a.match] || a.match)}${a.match === "time-window" ? " ⚠️" : ""}</div>`
+    : "";
+  return `
+    <div class="attribution ${cls}">
+      <div class="attr-head"><span class="attr-title">主使归因</span></div>
+      <div class="attr-who">${who}</div>
+      <div class="attr-verify">${verifyLine}</div>
+      ${autonomyLine}
+      ${matchLine}
     </div>
   `;
 }

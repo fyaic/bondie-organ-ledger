@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Op, OrganSystem, Provenance, Severity, Status, Ticket } from "../types.ts";
+import type { Attribution, Op, OrganSystem, Provenance, Severity, Status, Ticket } from "../types.ts";
 import { defaultLedgerHome, localDay, paths, readJsonl } from "../util.ts";
 
 export type BoardDateFilter = "today" | "recent" | "all" | string;
@@ -12,12 +12,16 @@ export type BoardSeverityFilter = "all" | Severity;
 // else (an agent/user edited a file, or plain content history — no upstream event).
 export type BoardProvenanceFilter = "all" | "upstream" | "agent";
 const UPSTREAM_KINDS = new Set(["pull", "merge", "clone"]);
+// principal (who-caused-it) filter — by attribution.principal.kind. "im-user"
+// spans both channels; a card with no attribution counts as "unknown".
+export type BoardPrincipalFilter = "all" | "im-user" | "autonomous" | "local" | "unknown";
 
 export interface BoardFilters {
   date?: BoardDateFilter;
   system?: BoardSystemFilter;
   severity?: BoardSeverityFilter;
   provenance?: BoardProvenanceFilter;
+  principal?: BoardPrincipalFilter;
   q?: string;
 }
 
@@ -37,6 +41,7 @@ export interface DashboardCard {
   git_commit: string | null;
   created_at: string;
   provenance: Provenance | null;   // source dimension (where this change came from); null = untagged
+  attribution: Attribution | null; // principal dimension (who caused it); null = untagged (treated as unknown)
 }
 
 export interface BoardResponse {
@@ -81,6 +86,53 @@ export function loadBoard(filters: BoardFilters = {}, ledgerHome = defaultLedger
   };
 }
 
+// ---- attribution stats (`organledger attribution --stats`) ----------------
+// Honest distribution over the principal axis. Un-attributed tickets are counted
+// as "unknown" (NEVER hidden — no silent gaps), and the verified/attested share
+// is reported separately so it's clear how much is only-attested vs local/unknown.
+export interface AttributionStats {
+  total: number;
+  byKind: Record<BoardPrincipalFilter, number>; // im-user / autonomous / local / unknown
+  byChannel: Record<string, number>;            // wecom / feishu / … (im-user only)
+  byMatch: Record<string, number>;              // turn-id / session / time-window / none
+  verifiedAttested: number;                     // im-user + platform-attested (the only true-verified bucket)
+  requested: number;                            // autonomy:"requested" (faithfulness UNPROVEN)
+  date: BoardDateFilter;
+}
+
+export function buildAttributionStats(
+  ledgerHome = defaultLedgerHome(),
+  filters: BoardFilters = {}
+): AttributionStats {
+  const p = paths(ledgerHome);
+  const cards = readJsonl<Ticket>(p.tickets)
+    .filter((t) => t?.change_id)
+    .map(toCard)
+    .filter((card) => matchesFilters(card, filters));
+
+  const byKind: Record<BoardPrincipalFilter, number> = { "all": 0, "im-user": 0, autonomous: 0, local: 0, unknown: 0 };
+  const byChannel: Record<string, number> = {};
+  const byMatch: Record<string, number> = {};
+  let verifiedAttested = 0;
+  let requested = 0;
+
+  for (const card of cards) {
+    const kind = principalKindOf(card);
+    byKind[kind]++;
+    const a = card.attribution;
+    const match = a?.match ?? "none";
+    byMatch[match] = (byMatch[match] ?? 0) + 1;
+    if (a?.principal.kind === "im-user") {
+      const ch = a.principal.channel ?? "unknown";
+      byChannel[ch] = (byChannel[ch] ?? 0) + 1;
+    }
+    if (a?.principal.verified === true && a.principal.attestation === "platform-attested") verifiedAttested++;
+    if (a?.autonomy === "requested") requested++;
+  }
+  delete (byKind as Record<string, number>)["all"];
+  return { total: cards.length, byKind, byChannel, byMatch, verifiedAttested, requested, date: filters.date || "all" };
+}
+
 function readHeldTickets(heldDir: string): Ticket[] {
   if (!fs.existsSync(heldDir)) return [];
   const files = fs.readdirSync(heldDir).filter((name) => name.endsWith(".json"));
@@ -117,7 +169,15 @@ export function toCard(ticket: Ticket): DashboardCard {
     git_commit: ticket.git_commit,
     created_at: ticket.created_at,
     provenance: ticket.provenance ?? null,
+    attribution: ticket.attribution ?? null,
   };
+}
+
+// principal kind of a card, treating an un-attributed card as "unknown".
+function principalKindOf(card: DashboardCard): BoardPrincipalFilter {
+  const k = card.attribution?.principal.kind;
+  if (k === "im-user" || k === "autonomous" || k === "local") return k;
+  return "unknown";
 }
 
 function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
@@ -125,6 +185,7 @@ function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
   const system = filters.system || "all";
   const severity = filters.severity || "all";
   const provenance = filters.provenance || "all";
+  const principal = filters.principal || "all";
   const q = (filters.q || "").trim().toLowerCase();
 
   if (!matchesDate(card.created_at, date)) return false;
@@ -135,6 +196,7 @@ function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
     if (provenance === "upstream" && !isUpstream) return false;
     if (provenance === "agent" && isUpstream) return false;
   }
+  if (principal !== "all" && principalKindOf(card) !== principal) return false;
   if (q && !card.file.toLowerCase().includes(q) && !card.change_id.toLowerCase().includes(q)) return false;
   return true;
 }

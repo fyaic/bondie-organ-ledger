@@ -98,6 +98,12 @@ export function paths(ledgerHome: string) {
     inbox: path.join(h, "state", "events", "inbox.jsonl"),
     processed: path.join(h, "state", "events", "processed"),
     lock: path.join(h, "state", "daemon.lock"),
+    // Phase 2 principal-turn stream (04.2 contract): IM entrypoints (WeCom bridge /
+    // feishu hook — OUTSIDE this repo) append-only one turn record per external
+    // message; the daemon's PrincipalIndex reads it to JOIN principals onto in-band
+    // writes. State-class (rotatable, not an audit source of truth); missing/empty
+    // stream ⇒ every write degrades to unknown/local, system still runs.
+    principalTurns: path.join(h, "state", "principal", "turns.jsonl"),
     // logs (OrganLedger's own run logs — rotated, deletable)
     logs: path.join(h, "logs"),
     // cache (recomputable)

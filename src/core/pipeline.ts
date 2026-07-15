@@ -7,17 +7,20 @@ import { classify } from "./classifier.ts";
 import { gate } from "./gate.ts";
 import type { Ledger } from "./ledger.ts";
 import type { Committer } from "./committer.ts";
+import type { PrincipalIndex } from "./principal-index.ts";
 import type { Config, OrganEvent, Target } from "../types.ts";
 
 export class Pipeline {
   private cfg: Config;
   private ledger: Ledger;
   private committer: Committer;
+  private principalIndex: PrincipalIndex | null;
 
-  constructor(cfg: Config, ledger: Ledger, committer: Committer) {
+  constructor(cfg: Config, ledger: Ledger, committer: Committer, principalIndex: PrincipalIndex | null = null) {
     this.cfg = cfg;
     this.ledger = ledger;
     this.committer = committer;
+    this.principalIndex = principalIndex;
   }
 
   private targetFor(evt: OrganEvent): Target | undefined {
@@ -28,8 +31,9 @@ export class Pipeline {
     const target = this.targetFor(evt);
     if (!target) return; // unknown system → ignore (kept in archive)
 
-    // 1. normalize
-    const { ticket, beforeText, afterText } = normalize(evt, target, this.ledger);
+    // 1. normalize (refresh principal-turn index so newly-appended turns JOIN)
+    this.principalIndex?.refresh();
+    const { ticket, beforeText, afterText } = normalize(evt, target, this.ledger, this.principalIndex);
 
     // idempotent replay guard (crash mid-drain)
     if (this.ledger.hasChangeId(ticket.change_id)) return;

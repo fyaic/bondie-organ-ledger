@@ -224,6 +224,7 @@ organledger daemon                            # 守护进程（consumer + watche
 organledger once                              # 只 drain+flush 一次后退出
 organledger backfill [--full-history] [--since-days N] [--reflog]  # 回放 target 各 GitSource 历史入账（幂等；--reflog 加上游更新事件）
 organledger provenance [--fetch] [--json]  # 扫描各器官文件夹 git 源 → state/provenance.json（只读）
+organledger attribution --stats [--date today|YYYY-MM-DD] [--json]  # 主使(principal)分布：im-user/自主/本机/unknown 占比（诚实，含未插桩=unknown，no silent gaps）
 organledger heatmap [--window all|Nd] [--changed-only] [--redact[=glob,...]] [--json]  # 文件树热力(颜色=频率) → state/heatmap.json（只读，绝不读文件内容）
 organledger report [--date today|YYYY-MM-DD]  # 器官审计日报
 organledger rollback --change <id> | --session <id> | --before <ts> [--confirm]
@@ -253,11 +254,12 @@ organledger dashboard            # → http://localhost:7377（只读，仅 127.
 
 ```
 src/
-├── core/     inbox daemon normalizer classifier gate committer ledger pipeline
+├── core/     inbox daemon normalizer classifier gate committer ledger pipeline principal-index  # +principal-index(Phase 2 主使 turn 流索引)
 ├── adapters/openclaw/  watcher organ-audit sqlite-dump
-├── adapters/hermes/    shim.py
+├── adapters/hermes/    shim.py                       # Phase 2: emit_organ_event 带 turn_id/session_id
+├── adapters/wecom/     principal-turn.ts             # Phase 2: WeCom 入口 turn record 参考实现（契约写方；真插桩在仓外 bridge）
 ├── onboard/  init detect migrate logger doctor lifecycle autostart backfill provenance heatmap  # Phase 1.5 + 1.6(provenance) + 1.7/1.8(file-tree heatmap)
-├── dashboard/  server data activity heatmap-read reveal public/(index.html dashboard.css dashboard.js)  # 本地只读看板（来源面板 + 日志 + 文件树热力 + OS 定位 reveal）
+├── dashboard/  server data activity heatmap-read reveal public/(index.html dashboard.css dashboard.js)  # 只读看板（来源面板 + 日志 + 文件树热力 + 主使归因徽标/过滤/attribution --stats）
 └── cli/      index report rollback approve
 
 prompts/
@@ -267,7 +269,7 @@ prompts/
 ## 测试
 
 ```bash
-node --test test/*.test.ts        # 65 个：核心 + classifier + hermes 跨语言 + onboarding(迁移/logger/paths v2/回填) + dashboard(列映射/KPI/筛选) + provenance(多源扫描/来源注入/加法式链/reflog) + activity(按天聚合/白话/上游) + heatmap(频率/有界/rel_path/整树默认/排序/**隐私断言**) + reveal(**路径安全断言**)
+node --test test/*.test.ts        # 84 个：核心 + classifier + hermes 跨语言 + onboarding(迁移/logger/paths v2/回填) + dashboard(列映射/KPI/筛选) + provenance(多源扫描/来源注入/加法式链/reflog) + activity(按天聚合/白话/上游) + heatmap(频率/有界/rel_path/整树默认/排序/**隐私断言**) + reveal(**路径安全断言**) + attribution(主使归因 turn 关联/**诚实分层断言**)
 python -m pytest test/test_hermes_shim.py   # 2 个：shim schema 同构
 npm run typecheck                  # tsc --noEmit
 ```
@@ -278,6 +280,7 @@ npm run typecheck                  # tsc --noEmit
 - `activity.test`：混合时区→同一本地日聚合、文件夹 rollup + 白话摘要、上游 pull 计数与 remote 短名、逐条明细无内容/diff、空账本安全
 - `heatmap.test`：changed-only 频率(叶子/目录聚合)、window 过滤、有界 full-tree(排除 node_modules/.git + 巨目录折叠 truncated + 深度封顶)、缺失 target 安全 no-op、**rel_path(root空/叶真实路径)**、**整树默认含未改动节点**、**排序 dir 在前按名(D4)**、**隐私断言①字段白名单(无内容/diff/hash/reason/密钥)**、**隐私断言②--redact 打码名+置空 rel_path 留热度**
 - `reveal.test`：合法 in-target 路径解析 ok、**安全断言①穿越/绝对/空路径→403 且 spawn 零调用**、**安全断言②符号链接逃逸被 realpath 容纳校验拒(403)**、未知 system/不存在路径→404、`osRevealCommand` 只定位(select/-R)不执行且参数数组无 shell、`revealInOS` 以数组传 spawn(detached/stdio ignore)
+- `attribution.test`：**加法式 schema 红线(attribution 可选，老 ticket 字节不变，链 intact)**、PrincipalIndex(byTurn/bySession 仅单一主使/nearest±窗/缺流不崩/坏行跳过/append-tail)、resolveAttribution 四分支(turn/session/time-window 命中→im-user/verified/attested/requested；有 ctx 无主使→autonomous/self；无 ctx→unknown；out-of-band→**本机永不 verified**)、**诚实钳制(非 im-user / 非 platform-attested 强制 verified:false)**、WeCom 参考实现映射、**模拟端到端(emit→index→JOIN + daemon 提交票据带 wecom 主使/链 intact)**、看板主使过滤、**attribution --stats 未插桩计入 unknown(no silent gaps) + 四档守恒**
 
 ## 数据契约
 
@@ -286,6 +289,40 @@ npm run typecheck                  # tsc --noEmit
 - **commit message**：`[chg-<id>][<system>][session:<id>] <op> <file>` + reason/severity/status。
 - **config**：`~/.organledger/config.json`（监听目标、分级规则、时间窗、ignore globs、log_level/保留期）。
 
-## Phase 2（未做，路线）
+## 身份 / 主使归因（Phase 2，已实现）
 
-见 `docs/phase2-identity.md`：in-band 会话绑定 → `verified:true`、Bash 绕过按 pid/时间窗关联、SHA256 基线自愈、attestation、外部 issue/PR 审批。**Schema 已为身份预留字段，Phase 2 只增强不重构。**
+给账本补"**主使(principal)是谁**"这一维：一次器官改动，是**某 IM 外部用户的请求**、
+**agent 自主**、还是**本机（你/CC，难分）**——诚实分层、可过滤、只对可验证的部分标已验证。
+详见 [`docs/phase2-identity.md`](docs/phase2-identity.md) 与
+[`docs/principal-turn-contract.md`](docs/principal-turn-contract.md)。
+
+**要解决的真问题**：Writer(手)≠Principal(意图源)。agent 替 IM 外部用户干活，此前被记成
+"agent 改的"，丢了"其实是那个外部用户让它改的"。
+
+**三轴归因**：`Writer`(谁写字节) / `Principal`(谁的请求) / `Autonomy`(被要求还是自发)。
+`Attribution` 是 ticket 的**可选加法字段**（仿 1.6 provenance，哈希链不破，
+`TicketAuthor.verified` 仍恒字面 false）。
+
+**turn-id 关联法（核心机制）**：意图无法从文件系统事后重建 → **写时 in-band 捕获**。
+IM 入口(hook)记 `state/principal/turns.jsonl` 的 turn record（含 principal+turn_id+session）；
+agent 写器官(shim)带 `turn_id`；normalizer 按 `turn_id > session > 时间窗(弱)` **JOIN**。
+入口缺失则降级 unknown/local，**契约优先，organledger 侧照常运行**。
+
+**头号红线：诚实分层（自动化断言锁死）**
+| 情况 | verified | 备注 |
+|---|---|---|
+| IM 外部用户(WeCom/飞书,平台认证+运行时证言) | **true** | 必带 `attestation:"platform-attested"`（**非**密码学证明） |
+| agent 自主(有 turn 无 principal) | false | `kind:autonomous, autonomy:self` |
+| 本机(你/CC/agent 本地) | **永远 false** | 统一 `local-unverified`，不猜 |
+| 未插桩/out-of-band/无 turn | false | `unknown` |
+
+- `autonomy:"requested"` **≠** 忠实（看板标"忠实性未证"）；`attested` **≠** proven（看板写"渠道认证·运行时证言"，绝不写"已证明"）；`match:time-window` 标"弱关联"。
+- **渠道**：WeCom(自建 bridge，真插桩参考实现) ✅；飞书(官方插件黑盒) → **D8 ⏳ 降级**，契约+hook 模板已备，principal=unknown 非失败。
+
+**看板**：卡片主使徽标（👤 渠道·用户 / 🤖 agent 自主 / 🖥 本机(未验证) / ❔ 未知）+ 抽屉主使块（诚实限定语）+ 按主使/渠道过滤；`organledger attribution --stats` 展示各档占比（含 unknown，no silent gaps）。
+
+## Phase 3（未做，路线）
+
+密码学不可抵赖（签名/凭证链，替代 attested）、autonomy 忠实性判定（写入是否真照请求）、
+本机 user vs CC vs agent 细分（OS 写入审计/PID 反关联）、外部 issue/PR 审批闭环。
+**本轮 attested = 平台认证 + 运行时证言，是 Phase 2 的诚实边界；Phase 3 才谈签名。**
