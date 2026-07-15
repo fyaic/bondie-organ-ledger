@@ -9,6 +9,8 @@ import { getLogger } from "./logger.ts";
 import { gitSafe } from "../util.ts";
 import { Ledger } from "../core/ledger.ts";
 import { backfillFromGitHistory } from "./backfill.ts";
+import { buildProvenanceReport, writeProvenanceReport } from "./provenance.ts";
+import { buildHeatmap, writeHeatmapReport } from "./heatmap.ts";
 import type { Config, Target, SeverityRule } from "../types.ts";
 
 // Runtime-churn exclusions converged in Phase 1 (D-005). Single source shared by
@@ -41,6 +43,7 @@ export interface InitOptions {
   noSnapshot?: boolean;
   noBackfill?: boolean;   // skip historical git-history backfill
   fullHistory?: boolean;  // backfill ALL history (default: last 90 days)
+  noPrime?: boolean;      // skip the "prime dashboard state" step (provenance + heatmap)
   // live-print each line as it's produced (so an interactive prompt lands AFTER
   // the preceding steps are shown). Lines are still returned in the result too.
   emit?: (line: string) => void;
@@ -226,7 +229,7 @@ export function runInit(opts: InitOptions): InitResult {
   // Step 4: historical backfill — replay target git history into the ledger so the
   // dashboard shows organ evolution instead of a blank slate. Read-only on target;
   // idempotent (skips commits already recorded). author.verified stays false.
-  push(`\n[4/7] History backfill`);
+  push(`\n[4/8] History backfill`);
   if (opts.noBackfill) {
     push(`  skipped (--no-backfill)`);
   } else {
@@ -248,7 +251,7 @@ export function runInit(opts: InitOptions): InitResult {
   // Step 5: first-scan water line. Writes ONE scoped commit per git target, so it
   // is gated: --yes snapshots non-interactively, --no-snapshot skips, otherwise
   // confirmSnapshot() (an interactive y/N) decides. No callback → skip (safe default).
-  push(`\n[5/7] First-scan water line`);
+  push(`\n[5/8] First-scan water line`);
   const doSnapshot =
     opts.noSnapshot ? false
     : opts.yes ? true
@@ -262,15 +265,45 @@ export function runInit(opts: InitOptions): InitResult {
     push(`  skipped — no snapshot taken. Re-run 'organledger init' and answer y, or pass --yes.`);
   }
 
-  // Step 6: self-check (lightweight; full report via `doctor`)
-  push(`\n[6/7] Self-check`);
+  // Step 6: prime dashboard state. Generates state/provenance.json (git source map)
+  // and state/heatmap.json (file-tree heat) so the dashboard's 来源 / 文件树 views are
+  // FULL on first open instead of blank. RED LINE: read-only on the target (offline,
+  // no --fetch; heatmap is a bounded fs walk) and NON-FATAL — any failure just prints
+  // a note and onboarding continues. `--no-prime` skips it (CI/speed).
+  push(`\n[6/8] Prime dashboard state`);
+  if (opts.noPrime) {
+    push(`  skipped (--no-prime)`);
+  } else {
+    try {
+      const prov = buildProvenanceReport(cfg); // offline: last-known ahead/behind, never fetch
+      writeProvenanceReport(home, prov);
+      const nSources = prov.targets.reduce((n, g) => n + g.sources.length, 0);
+      const hm = buildHeatmap(cfg, { window: "all" }); // full organ tree (changedOnly defaults false)
+      writeHeatmapReport(home, hm);
+      push(`  provenance: ${nSources} source(s) · heatmap: ${hm.limits.node_count} node(s) — 来源/文件树 views ready`);
+      if (existing) push(`  既有安装已刷新：来源 / 文件树 / 主使 视图随本次 onboard 就绪`);
+    } catch (e) {
+      // NON-FATAL: onboarding must not fail because a dashboard-state prime failed.
+      push(`  prime skipped (non-fatal): ${(e as Error).message}`);
+      push(`  → 可稍后手动运行 'organledger provenance' 与 'organledger heatmap' 生成`);
+    }
+  }
+
+  // Step 7: self-check (lightweight; full report via `doctor`)
+  push(`\n[7/8] Self-check`);
   const log = getLogger(home, cfg.log_level ?? "info");
   log.info("init", `initialized layout v2, ${cfg.targets.length} target(s)`);
-  push(`  logs → ${paths(home).logs}  |  run 'organledger doctor' for full health report`);
+  push(`  logs → ${paths(home).logs}  |  run 'organledger doctor' for full health + 视图就绪度`);
 
-  // Step 7: finish
-  push(`\n[7/7] Done ✅  organledger v${ORGANLEDGER_VERSION}`);
-  push(`  Next: 'organledger daemon' to start governing.`);
+  // Step 8: finish. Enumerate the views/commands delivered across 1.6–Phase 2 so
+  // the new capabilities are discoverable (not just "Next: daemon").
+  push(`\n[8/8] Done ✅  organledger v${ORGANLEDGER_VERSION}`);
+  push(`  Next:`);
+  push(`    organledger daemon                 开始治理（常驻消费 + 监听器官改动）`);
+  push(`    organledger dashboard --open       看板 / 日志 / 文件树 三视图 + 来源面板 + 主使徽标`);
+  push(`                                       （文件树：左键定位文件 · 右键在资源管理器/访达打开文件夹）`);
+  push(`  也可跑： provenance（来源图）· heatmap（文件树热力）· backfill --reflog（上游更新事件）· attribution --stats（主使分布）`);
+  push(`  organledger doctor                   看 onboard 是否齐、各视图就绪度`);
   push(`  'organledger paths' shows where everything lives.`);
 
   return { lines, configPath: paths(home).config };

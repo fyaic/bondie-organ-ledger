@@ -94,6 +94,7 @@ async function main(): Promise<void> {
         noSnapshot: !!flags["no-snapshot"],
         noBackfill: !!flags["no-backfill"],
         fullHistory: !!flags["full-history"],
+        noPrime: !!flags["no-prime"],
         emit: (l) => console.log(l),
         confirmSnapshot: interactive
           ? () => promptYesNo("\n  建立首扫水位快照？将向目标 repo 写入 1 条 scoped commit。(y/N) ")
@@ -282,7 +283,7 @@ function printHelp(home: string): void {
   ];
   if (uninit) lines.push("未初始化 —— 先运行 'organledger init'   (not initialized — run 'organledger init')", "");
   lines.push(
-    "  init [--yes] [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--autostart]",
+    "  init [--yes] [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--no-prime] [--autostart]",
     "  backfill [--full-history] [--since-days N] [--reflog]   replay target git history (all GitSources) into the ledger (idempotent)",
     "  doctor                     health report (env/paths/config/audit/runtime/capacity)",
     "  paths                      show where every artifact lives",

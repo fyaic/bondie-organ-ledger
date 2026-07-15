@@ -5,9 +5,11 @@
 Agent 会自己改自己的"器官"，但这些写操作**没身份、没意图、没审批、没历史、没可观测性**。
 OrganLedger 站在 OpenClaw / Hermes 之外，把每次器官改动自动记成**带意图的变更单 + git 版本 + 防篡改哈希链账本**，可日报、可回滚、高危可拦审，并配一个本地只读审计看板。
 
-> 状态：Phase 1（治理引擎）+ Phase 1.5（onboarding / 数据布局 / 本地审计看板）+ Phase 1.6（**来源 / Provenance 层**）已实现并测试通过。
-> **来源可验证、身份不可验证**——Phase 1.6 把 `verified` 拆成两维：器官"从哪个 remote/commit 来"可内容寻址验证（`provenance.verified:true`）；
-> "谁改的"仍留 Phase 2，`author.verified` 恒 `false`，不声称已证明谁改的。
+> 状态：Phase 1（治理引擎）+ 1.5（onboarding / 布局 / 本地看板）+ 1.6（**来源 Provenance**）+ 1.7（活动日志 + 隐私热力）+ 1.8（文件树热力 + OS 定位）+ **Phase 2（主使归因 Attribution）** 均已实现并测试通过。
+> **三轴诚实模型**（`verified` 分维，绝不 overclaim "证明了谁改的"）：
+> - **来源(provenance)**：器官"从哪个 remote/commit 来"→ 内容寻址**可验证**（`provenance.verified:true`）。
+> - **主使(principal)**：IM 用户经**平台认证 + 运行时证言 attested**（Phase 2；**attested ≠ 密码学证明**）；本机 local-unverified；agent 自主 self。
+> - **作者身份(author.verified)**：**恒 `false`**——谁按下的手，仍不声称证明。`requested ≠ 忠实`、本机不可归因。
 
 ## 🚀 快速开始（新用户从这里）
 
@@ -27,13 +29,21 @@ organledger init
 # 2) 开始治理 —— 挂后台常驻，Agent 一改器官文件就自动记账（生成变更单 + git commit + 哈希链账本）
 organledger daemon
 
-# 3) 看审计看板（另开一个终端）—— 浏览器打开 http://localhost:7377（看板 / 日志 / 文件树 三视图）
+# 3) 看审计看板（另开一个终端）—— http://localhost:7377
+#    三视图：看板 / 日志 / 文件树；看板含「来源面板」+「主使徽标」（👤IM用户·渠道认证 / 🤖agent自主 / 🖥本机未验证 / ❔未知）
+#    文件树：左键定位文件 · 右键在资源管理器/访达打开文件夹（reveal）
 organledger dashboard --open
 
-# 4) 日常复盘 / 撤销
+# 4) 日常复盘 / 撤销 / 发现更多
 organledger report --date today          # 今日改了啥
 organledger rollback --change <change_id> # 改错了一键安全退回
+organledger provenance                   # 器官来源图（remote/branch/落后上游）
+organledger heatmap                      # 文件树热力（颜色=改动频率，无内容）
+organledger attribution --stats          # 主使分布（im-user/本机/自主/unknown 占比，含未插桩=unknown）
+organledger doctor                       # onboard 是否齐、各视图就绪度、归因接没接
 ```
+
+> onboard 后**看板全视图即满**：`init` 的「预热」步已生成 `state/provenance.json` + `state/heatmap.json`（只读非致命，`--no-prime` 可跳过）。回访重跑 `init` 会刷新这些 state 并提示"新视图已就绪"。
 
 - **没装 CLI 命令？** 没跑 `npm link` 前 `organledger` 不存在（会报"不是内部或外部命令"）。要么先 `npm link`，要么在仓库目录内用等价写法 `node src/cli/index.ts <cmd>`（或 `npm run ol -- <cmd>`）。
 - 卸载全局命令：仓库目录里 `npm unlink -g organledger`。
@@ -53,9 +63,12 @@ organledger rollback --change <change_id> # 改错了一键安全退回
 - **session 合并**：同 session/窗口多文件 → 一个逻辑 commit → 解提交噪音。
 - **统一 JSONL schema**：in-band(Hermes) / out-of-band(OpenClaw) 两源天然归一。
 
-## 诚实边界（Phase 1）
+## 诚实边界（三轴模型）
 
-- **身份留 Phase 2**：`author.verified` 恒 `false`，**不声称已证明谁改的**（见 `docs/phase2-identity.md`）。
+- **三轴分层归因**（`verified` 各自独立，绝不 overclaim）：
+  - **来源(provenance)** 可内容寻址**验证**（1.6，`provenance.verified:true`）；
+  - **主使(principal)** 仅 IM 用户经**平台认证 + 运行时证言 attested** 才 `verified:true`（Phase 2；**attested ≠ 密码学证明**，运行时被攻陷可伪造）；本机 local-unverified；agent 自主 self；未插桩 unknown；`requested ≠ 忠实`（能证本轮有该请求，证不了写入忠实于请求）。
+  - **作者身份(author.verified)** **恒 `false`**——谁按下的手仍不声称证明（见 `docs/phase2-identity.md`）。
 - **非破坏**：任何回滚/提交只操作明确文件，绝无 `git add -A` / `checkout` / `reset` 用户改动；回滚前建 safety 分支。
 - **门控默认 observe**：仅 `severity=critical` 或 `op=delete` 才 `held`（阻塞待确认）。
 - symlink 逃逸 repo 外的器官：**治理边界外**，跳过 + 审计说明。
@@ -76,11 +89,11 @@ node src/cli/index.ts init        # 探测 OpenClaw/Hermes → 生成 config →
 node src/cli/index.ts daemon      # 开始治理
 ```
 
-`init` 七步：环境探测 → 生成/合并 `config.json` → 建 v2 分区目录 + `VERSION` → （旧布局则）无损迁移 →
-**历史回填**（把 target git 历史回放成 ticket，装上即有纵深，见下）→
-首扫水位（写 target `.gitignore` + scoped 快照，排除运行期 churn/密钥/大二进制/内嵌仓库/memory 二进制 sqlite）→ 自检。
+`init` 八步：环境探测 → 生成/合并 `config.json` → 建 v2 分区目录 + `VERSION` → （旧布局则）无损迁移 →
+**历史回填**（把 target git 历史回放成 ticket，装上即有纵深，见下）→ 首扫水位（写 target `.gitignore` + scoped 快照，排除运行期 churn/密钥/大二进制/内嵌仓库/memory 二进制 sqlite）→
+**预热 dashboard state**（生成 `state/provenance.json` + `state/heatmap.json`，让「来源 / 文件树」视图首开即满；**只读 target、失败非致命**、`--no-prime` 跳过）→ 自检 → 完成语（枚举三视图 / reveal / 新命令）。
 首扫水位会向 target repo 写 1 条 commit：交互模式先 `y/N` 询问，`--yes` 免询问直接建，`--no-snapshot` 跳过（可日后再 `init`）。
-非交互：`init --yes [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--autostart]`。**幂等**：重复 `init` 安全。
+非交互：`init --yes [--openclaw <p>] [--hermes <p>] [--home <p>] [--no-snapshot] [--no-backfill] [--full-history] [--no-prime] [--autostart]`。**幂等**：重复 `init` 安全（回访会刷新 state 并提示"新视图已就绪"）。
 
 ### 历史回填（新装即有纵深，不再空看板）
 
@@ -103,6 +116,10 @@ organledger backfill --reflog        # 额外回填 reflog 上游更新事件（
 > **让你的编码终端 Agent 一键填充看板**：把 [`prompts/populate-dashboard-history.md`](prompts/populate-dashboard-history.md)
 > 丢给 Claude Code / Cursor / Codex（或直接说"运行 `prompts/populate-dashboard-history.md` 里的任务"）,
 > 它会按内置守则**先停 daemon（含 Windows 真实 PID 停法）→ 回填 → verify-ledger → 打开看板**,全程只读 target、幂等安全。
+>
+> 另两个可复用提示词：
+> - [`prompts/prime-dashboard-views.md`](prompts/prime-dashboard-views.md) —— 让 Agent 一键 `provenance` + `heatmap`（+按需 `backfill --reflog`）**点亮全部视图**（只读、幂等）。
+> - [`prompts/wire-wecom-attribution.md`](prompts/wire-wecom-attribution.md) —— 引导 Agent 按 [`docs/principal-turn-contract.md`](docs/principal-turn-contract.md) 给**自建 WeCom 桥**收消息处插桩，把 IM 主使喂进归因。**硬红线**：只对平台认证的真实 userid 标 attested、**绝不伪造 verified**、`attested ≠ proven`、仓外改动显式边界标注、不动 organledger 仓自身。
 
 ## 器官来源 / Provenance（Phase 1.6）
 
@@ -263,7 +280,9 @@ src/
 └── cli/      index report rollback approve
 
 prompts/
-└── populate-dashboard-history.md   # 交给编码 Agent 一键回填看板历史的可复用任务提示
+├── populate-dashboard-history.md   # 交给编码 Agent 一键回填看板历史的可复用任务提示
+├── prime-dashboard-views.md        # 一键 provenance+heatmap(+backfill) 点亮全部视图（只读）
+└── wire-wecom-attribution.md       # 引导给自建 WeCom 桥插桩喂主使（含诚实红线 + 仓外边界）
 ```
 
 ## 测试

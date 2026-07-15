@@ -1,12 +1,14 @@
 // `organledger doctor` — partitioned health report (🟢/🟡/🔴). Read-only.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { paths, loadConfigSafe, readVersion, expandHome } from "../util.ts";
+import { paths, loadConfigSafe, readVersion, expandHome, readJsonl } from "../util.ts";
 import { liveDaemonPid } from "../core/daemon.ts";
 import { Ledger } from "../core/ledger.ts";
 import { detectEnvironment } from "./detect.ts";
 import { isAutostartInstalled } from "./autostart.ts";
 import { buildProvenanceReport, writeProvenanceReport } from "./provenance.ts";
+import { buildAttributionStats } from "../dashboard/data.ts";
+import type { TurnRecord } from "../types.ts";
 
 type Mark = "🟢" | "🟡" | "🔴";
 
@@ -96,6 +98,68 @@ export function runDoctor(homeArg: string): { lines: string[]; healthy: boolean 
     }
   } catch (e) {
     add("🟡", "heatmap", `could not read heatmap.json: ${(e as Error).message}`);
+  }
+
+  // attribution (Phase 2): is the principal-turn stream present/fresh, and how do
+  // recent tickets distribute across principals? Read-only (reads state + ledger,
+  // never git/target). Honest wording: unknown = un-instrumented / local, NOT
+  // "nobody changed it"; attested = channel-auth + runtime self-report, NOT proof.
+  let attributionEngaged = false;
+  let ticketTotal = 0;
+  try {
+    const turnsFile = paths(home).principalTurns;
+    let streamCount = 0;
+    let freshest: string | null = null;
+    if (fs.existsSync(turnsFile)) {
+      const turns = readJsonl<TurnRecord>(turnsFile);
+      streamCount = turns.length;
+      for (const t of turns) {
+        if (t?.ts_start && (!freshest || t.ts_start > freshest)) freshest = t.ts_start;
+      }
+    }
+    const stats = buildAttributionStats(home, { date: "all" });
+    ticketTotal = stats.total;
+    const imUsers = stats.byKind["im-user"] ?? 0;
+    attributionEngaged = imUsers > 0 || streamCount > 0;
+
+    // 1) principal-turn stream
+    if (streamCount > 0) {
+      const ageMs = freshest ? Date.now() - Date.parse(freshest) : NaN;
+      const ageStr = Number.isNaN(ageMs) ? "unknown age" : `${Math.round(ageMs / 3600000)}h old`;
+      add("🟢", "attribution", `principal-turn stream: ${streamCount} turn(s), freshest ${ageStr} (state/principal/turns.jsonl)`);
+    } else {
+      add("🟡", "attribution", "principal-turn stream empty/absent — no IM entrypoint recording turns yet");
+    }
+
+    // 2) distribution (honest labels; unknown surfaced, never hidden)
+    if (ticketTotal > 0) {
+      const pct = (n: number) => `${Math.round((n / ticketTotal) * 100)}%`;
+      add("🟢", "attribution",
+        `principal mix (all): 👤im-user ${pct(imUsers)} · 🖥local ${pct(stats.byKind.local)} · 🤖autonomous ${pct(stats.byKind.autonomous)} · ❔unknown ${pct(stats.byKind.unknown)}` +
+        `  (unknown = un-instrumented/local, not "nobody"; attested = 渠道认证·运行时证言, 非密码学证明)`);
+    } else {
+      add("🟡", "attribution", "no tickets yet — run backfill / daemon, then re-check the principal mix");
+    }
+
+    // 3) engagement guidance
+    if (attributionEngaged) {
+      add("🟢", "attribution", `attribution engaged (IM principals recorded) — verified only for platform-attested IM users; local stays unverified`);
+    } else {
+      add("🟡", "attribution",
+        `attribution NOT wired — IM-driven changes will record as unknown. To attribute them to the requesting user, ` +
+        `instrument your IM entrypoint per docs/principal-turn-contract.md (see prompts/wire-wecom-attribution.md).`);
+    }
+  } catch (e) {
+    add("🟡", "attribution", `could not compute attribution: ${(e as Error).message}`);
+  }
+
+  // readiness: one-line onboard completeness overview — which dashboard views are
+  // primed (state present) so the user sees at a glance whether onboard is complete.
+  {
+    const provReady = fs.existsSync(paths(home).provenance);
+    const heatReady = fs.existsSync(paths(home).heatmap);
+    add(provReady && heatReady ? "🟢" : "🟡", "readiness",
+      `视图就绪：票据 ${ticketTotal} ✓ · 来源 ${provReady ? "✓" : "✗（跑 provenance / init）"} · 文件树 ${heatReady ? "✓" : "✗（跑 heatmap / init）"} · 归因 ${attributionEngaged ? "已接" : "未接（见上）"}`);
   }
 
   // daemon running
