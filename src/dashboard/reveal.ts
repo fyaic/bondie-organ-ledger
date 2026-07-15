@@ -50,9 +50,12 @@ export function resolveReveal(
   }
 
   const norm = String(relPath || "").replace(/\\/g, "/");
-  // empty path, absolute path, or any ".." segment → refuse before touching fs.
+  // empty path, absolute path, drive letter, or any ".." segment → refuse before touching fs.
   if (!norm) return { ok: false, status: 403, error: "out of bounds" };
-  if (path.isAbsolute(norm) || /^[a-zA-Z]:/.test(norm)) {
+  // Backslashes are already normalized to "/" above, so a Windows UNC path
+  // "\\server\share" arrives as "//server/share" — reject it explicitly (isAbsolute
+  // covers it too, but the intent is clearer stated) alongside absolute + drive-letter paths.
+  if (path.isAbsolute(norm) || /^[a-zA-Z]:/.test(norm) || norm.startsWith("//")) {
     return { ok: false, status: 403, error: "out of bounds" };
   }
   if (norm.split("/").some((seg) => seg === "..")) {

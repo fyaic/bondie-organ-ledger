@@ -187,7 +187,7 @@ function backfillOneSource(
     }
 
     const day = dayStampFromIso(authorIso);
-    for (const line of body.split("\n")) {
+    for (const line of body.split(/\r?\n/)) {
       if (!line.startsWith(":")) continue;
       const tab = line.indexOf("\t");
       if (tab === -1) continue;

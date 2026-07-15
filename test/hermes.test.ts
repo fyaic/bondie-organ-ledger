@@ -14,13 +14,31 @@ function mktmp(p: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), p));
 }
 
-test("python shim event → TS normalizer → hermes ticket (verified:false)", () => {
+// Probe for a usable python interpreter; order differs by platform (Windows ships
+// `python`, most *nix ship `python3`). Returns null when none is on PATH so the
+// cross-language test can SKIP instead of failing on a machine without python.
+function pythonCmd(): string | null {
+  const candidates = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
+  for (const c of candidates) {
+    try {
+      execFileSync(c, ["--version"], { stdio: "ignore" });
+      return c;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+const PY = pythonCmd();
+
+test("python shim event → TS normalizer → hermes ticket (verified:false)", { skip: PY ? false : "python not available — cross-language shim test skipped" }, () => {
   const home = mktmp("ol-hermes-");
   const inbox = path.join(home, "events", "inbox.jsonl");
   fs.mkdirSync(path.dirname(inbox), { recursive: true });
 
   // run the actual Python shim to append a real line
-  const py = process.platform === "win32" ? "python" : "python3";
+  const py = PY!;
   const shimPath = path.join(process.cwd(), "src", "adapters", "hermes", "shim.py");
   const code = [
     "import sys; sys.path.insert(0, r'" + path.dirname(shimPath) + "')",

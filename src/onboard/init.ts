@@ -152,7 +152,7 @@ export function firstScanSnapshot(t: Target): string[] {
   // stage only the watched organ dirs (git respects the .gitignore just written)
   const add = gitSafe(home, ["add", "--", ...t.watch]);
   if (!add.ok) {
-    out.push(`  ${t.system}: git add note — ${add.out.split("\n")[0]}`);
+    out.push(`  ${t.system}: git add note — ${add.out.split(/\r?\n/)[0]}`);
     return out;
   }
   // drop gitlinks (embedded repos) and oversized binaries from the snapshot
@@ -186,7 +186,7 @@ export function firstScanSnapshot(t: Target): string[] {
     const short = gitSafe(home, ["rev-parse", "--short", "HEAD"]).out;
     out.push(`  ${t.system}: snapshot ${short} (${finalStaged.length} files${dropped ? `, ${dropped} runtime/binary dropped` : ""})`);
   } else {
-    out.push(`  ${t.system}: snapshot note — ${commit.out.split("\n")[0]}`);
+    out.push(`  ${t.system}: snapshot note — ${commit.out.split(/\r?\n/)[0]}`);
   }
   return out;
 }

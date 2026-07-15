@@ -339,7 +339,10 @@ async function runDaemon(cfg: Config): Promise<void> {
   }
   d.start(200);
 
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return; // one-shot guard: multiple signals must not double-run teardown
+    shuttingDown = true;
     d.log.info("daemon", "shutting down…");
     for (const w of watchers) await w.stop();
     await d.stop();
@@ -347,6 +350,9 @@ async function runDaemon(cfg: Config): Promise<void> {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  // Windows has no SIGTERM; SIGBREAK covers Ctrl-Break and the scheduled-task stop path,
+  // so the daemon can release daemon.lock cleanly instead of leaving a stale lock.
+  if (process.platform === "win32") process.on("SIGBREAK", shutdown);
 }
 
 async function runOnce(cfg: Config): Promise<void> {
