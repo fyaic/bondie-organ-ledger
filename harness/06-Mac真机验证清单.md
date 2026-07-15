@@ -4,6 +4,12 @@
 > 目的：证明「代码级加固」在真实 macOS 上跑通核心流程、且哈希链与 Windows 一致。
 > 用独立家目录，别弄脏默认 `~/.organledger`（参考既有约定：用 `--home ~/.organledger-macdemo`）。
 
+> ⚠️ **情况反转说明（2026-07-15）**：本次执行者实际在 **macOS**（Darwin 25.5.0, Node v26）上完成代码加固，
+> 不是计划假设的 Windows。因此下面「验证 2 测试全绿」已由执行者在 Mac 上**预先跑通**（见 ✅），
+> 且额外修复了一个 Windows 参谋长看不到的 **macOS 专属 BLOCKER**（`provenance.ts` 符号链接路径失配，
+> 详见 `99-执行偏差日志.md` 跨平台异常 #1）。**现在真正待人类验证的反而是 Windows 侧** + 已 push 后的 CI 三矩阵。
+> Mac 侧命令仍建议人类照单复跑一遍作为独立确认。
+
 ## 前置
 ```bash
 node --version          # 需 ≥ v24
@@ -26,6 +32,7 @@ git ls-files --eol | grep -v 'lf' | grep 'w/' || echo "all LF ✓"
 ```bash
 node --test test/*.test.ts
 ```
+- [x] ✅ 执行者已在 Mac 跑通：**90 pass / 0 fail / 0 skip**（本机装了 python3，hermes 正常 pass；缺 python 时会 skip 非 fail）
 - [ ] 全部 pass（python 缺失的话 hermes 应为 skip 非 fail）
 - [ ] 记录 pass/skip/fail 数，与 Windows 本机结果对比应一致
 
