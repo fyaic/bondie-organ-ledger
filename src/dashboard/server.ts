@@ -62,6 +62,11 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
       if (url.pathname === "/dashboard.css" || url.pathname === "/dashboard.js") {
         return sendStatic(res, url.pathname.slice(1), theme);
       }
+      if (url.pathname === "/favicon.png" || url.pathname === "/favicon.ico") {
+        // binary asset (the crayon "doc" logo, shipped in public/) — read as a
+        // Buffer, never utf8, or the PNG bytes would be mangled.
+        return sendBinary(res, "favicon.png", "image/png");
+      }
 
       return sendText(res, 404, "Not Found");
     } catch (error) {
@@ -98,6 +103,18 @@ async function sendStatic(res: http.ServerResponse, fileName: string, theme: str
   if (safeName === "index.html") body = body.replace("__DEFAULT_THEME__", theme);
   res.writeHead(200, { "content-type": CONTENT_TYPES[path.extname(safeName)] || "text/plain; charset=utf-8" });
   res.end(body);
+}
+
+async function sendBinary(res: http.ServerResponse, fileName: string, contentType: string): Promise<void> {
+  const safeName = path.basename(fileName);
+  const fullPath = path.join(PUBLIC_DIR, safeName);
+  try {
+    const body = await fs.readFile(fullPath); // Buffer — no utf8 decode
+    res.writeHead(200, { "content-type": contentType, "cache-control": "public, max-age=86400" });
+    res.end(body);
+  } catch {
+    sendText(res, 404, "Not Found");
+  }
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
