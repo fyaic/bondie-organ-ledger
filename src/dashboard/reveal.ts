@@ -23,6 +23,7 @@ import type { Target } from "../types.ts";
 export interface RevealOk {
   ok: true;
   abs: string; // realpath'd absolute path, proven inside the target home
+  isDir: boolean; // whether abs is a directory (gates "open" mode — see below)
 }
 export interface RevealErr {
   ok: false;
@@ -70,32 +71,49 @@ export function resolveReveal(
   if (abs !== home && !abs.startsWith(home + path.sep)) {
     return { ok: false, status: 403, error: "out of bounds" };
   }
-  return { ok: true, abs };
+  let isDir = false;
+  try {
+    isDir = fs.statSync(abs).isDirectory();
+  } catch {
+    /* raced away between realpath and stat — treat as not-a-dir */
+  }
+  return { ok: true, abs, isDir };
 }
 
-// Platform locate command — SELECT/-R only, never open/execute the file. Returned
-// as {cmd, args} (array form) so it's testable and never goes through a shell.
-export function osRevealCommand(abs: string, platform: NodeJS.Platform = process.platform): {
-  cmd: string;
-  args: string[];
-} {
+export interface RevealOpts {
+  // "open" opens a DIRECTORY's contents in the file manager. It is ONLY ever
+  // honored for directories (the server passes open:false for files) — a file is
+  // always SELECTED, never opened/executed, so a right-click can't launch code.
+  open?: boolean;
+}
+
+// Platform command. Files (and the default) → SELECT/-R (locate, never execute).
+// Directories with open:true → open that folder's contents. Returned as
+// {cmd, args} (array form) so it's testable and never goes through a shell.
+export function osRevealCommand(
+  abs: string,
+  opts: RevealOpts = {},
+  platform: NodeJS.Platform = process.platform,
+): { cmd: string; args: string[] } {
+  const open = !!opts.open; // caller guarantees this is only true for a directory
   if (platform === "win32") {
-    // explorer /select,<abs> highlights the file in a new Explorer window.
-    return { cmd: "explorer", args: [`/select,${abs}`] };
+    // explorer <dir> opens the folder; explorer /select,<abs> highlights the item.
+    return open ? { cmd: "explorer", args: [abs] } : { cmd: "explorer", args: [`/select,${abs}`] };
   }
   if (platform === "darwin") {
-    // open -R reveals (selects) the file in Finder — does not open it.
-    return { cmd: "open", args: ["-R", abs] };
+    // open <dir> opens the folder in Finder; open -R <abs> reveals (selects) it.
+    return open ? { cmd: "open", args: [abs] } : { cmd: "open", args: ["-R", abs] };
   }
-  // linux/other: no portable "select" — open the CONTAINING directory only.
-  return { cmd: "xdg-open", args: [path.dirname(abs)] };
+  // linux/other: xdg-open a directory opens it; for select there is no portable
+  // highlight, so open the CONTAINING directory.
+  return open ? { cmd: "xdg-open", args: [abs] } : { cmd: "xdg-open", args: [path.dirname(abs)] };
 }
 
-// Spawn the locate command, detached and unref'd, so the dashboard never blocks
-// or inherits the child. `spawnFn` is injectable for tests. Explorer often exits
-// non-zero even on success, so exit status is intentionally ignored.
-export function revealInOS(abs: string, spawnFn: typeof spawn = spawn): void {
-  const { cmd, args } = osRevealCommand(abs);
+// Spawn the locate/open command, detached and unref'd, so the dashboard never
+// blocks or inherits the child. `spawnFn` is injectable for tests. Explorer often
+// exits non-zero even on success, so exit status is intentionally ignored.
+export function revealInOS(abs: string, opts: RevealOpts = {}, spawnFn: typeof spawn = spawn): void {
+  const { cmd, args } = osRevealCommand(abs, opts);
   const child = spawnFn(cmd, args, { detached: true, stdio: "ignore" });
   child.unref?.();
 }

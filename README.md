@@ -184,7 +184,8 @@ organledger heatmap --redact "<glob>,..." # 打码敏感名并置空 rel_path（
 ```
 - **HeatNode 加 `rel_path`**（target 相对全路径，供 reveal 构造绝对路径）；同层**文件夹在前、按名升序**（贴近 Explorer）；有界逻辑（MAX_*+排除+折叠 truncated）**原样复用不放松**。
 - 看板「文件树」tab：**手写递归可折叠树（禁 d3）**——三角展开符 / 文件夹图标 / 缩进表层级 / **行背景=频率对数色阶**（浅→深；暗色主题为 沉底棕→发光金）/ 右侧"N 次·最近日"；默认展开前 2 层；控件：全部展开·收起 / 只看改动 / 打码 / 复制生成命令 / 图例。折叠节点显示 `…(已折叠 N 项)`。
-- **`/api/reveal`（头号红线）**：`GET|POST /api/reveal?system=&path=` → 在 OS 文件管理器**定位选中**（win `explorer /select,`、mac `open -R`、linux `xdg-open <dir>`）。安全模型：`system`→target 根、拒 `..`/绝对路径、`realpath(home/path)` 必须仍在 `realpath(home)` 之内（**防符号链接逃逸**）、否则 **403 不 spawn**；spawn 用**参数数组不经 shell**（防注入）、**只定位不执行**（绝不 `start <file>`）、仅 `127.0.0.1`。逻辑在 `src/dashboard/reveal.ts` 的纯函数 `resolveReveal`（**先校验、零 spawn**，故越界可被单测证明"根本没机会 spawn"）。
+- **`/api/reveal`（头号红线）**：`GET|POST /api/reveal?system=&path=&mode=select|open`。左键=定位（`select`）；**右键菜单**：文件→定位、文件夹→**打开该文件夹**（`open`）或在上级定位。命令：win `explorer /select,`｜`explorer <dir>`、mac `open -R`｜`open <dir>`、linux `xdg-open <dir>`。安全模型：`system`→target 根、拒 `..`/绝对路径、`realpath(home/path)` 必须仍在 `realpath(home)` 之内（**防符号链接逃逸**）、否则 **403 不 spawn**；spawn 用**参数数组不经 shell**（防注入）、**只定位不执行**、仅 `127.0.0.1`。`open` 模式**只对目录生效**——服务端对文件强制回退为 `select`，**文件永不被打开/执行**（`绝不 start <file>`）。逻辑在 `src/dashboard/reveal.ts` 的纯函数 `resolveReveal`（**先校验、零 spawn**，故越界可被单测证明"根本没机会 spawn"）。
+- **多器官可选**：文件树按 target 分组，每个 organ（openclaw / hermes / …）一棵根；hermes 等**可选**，配置了就出现，`HeatmapTarget.exists=false` 时前端显示"目录不存在——配置并落地后自动出现"（不崩、不造假）。
 - **看板只读自证**：`grep -r "spawn\|child_process\|\"git\"" src/dashboard/` → spawn **仅** `reveal.ts`；`readdir` **仅**账本态（held/reports），**零** target 遍历、**零** git、**零**内联内容入口。
 
 ## 数据 / 日志布局（v2，五类分区）

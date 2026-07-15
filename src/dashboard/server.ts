@@ -50,7 +50,10 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
         const relPath = url.searchParams.get("path") || "";
         const decision = resolveReveal(system, relPath, targets);
         if (!decision.ok) return sendJson(res, decision.status, { ok: false, error: decision.error });
-        revealInOS(decision.abs);
+        // "open" opens a folder's contents; it is honored ONLY for directories, so
+        // a file is always merely selected — never opened/executed (red line).
+        const open = url.searchParams.get("mode") === "open" && decision.isDir;
+        revealInOS(decision.abs, { open });
         return sendJson(res, 200, { ok: true });
       }
 

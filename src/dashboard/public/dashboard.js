@@ -137,8 +137,9 @@ function bindEvents() {
   el.drawerClose.addEventListener("click", closeDrawer);
   el.overlay.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeDrawer();
+    if (event.key === "Escape") { closeDrawer(); closeContextMenu(); }
   });
+  window.addEventListener("scroll", closeContextMenu, true);
   window.addEventListener("resize", debounce(() => {
     if (state.topview === "heatmap" && state.heatmap) renderHeatmap(state.heatmap);
   }, 200));
@@ -718,7 +719,9 @@ function renderTargetTree(target, maxHeat) {
   if (!children.length) {
     treeEl.appendChild(Object.assign(document.createElement("div"), {
       className: "heatmap-empty",
-      textContent: "（此目标为空或未配置）",
+      textContent: target.exists
+        ? "（此器官暂无可显示的文件）"
+        : `（目录不存在：${target.home} —— 该器官可选，配置并落地后自动出现）`,
     }));
   } else {
     renderTreeLevel(treeEl, children, target.system, maxHeat);
@@ -801,6 +804,27 @@ function renderTreeNode(node, system, maxHeat) {
     }
   }
 
+  // right-click → jump into the OS file manager (open a folder, locate a file)
+  if (!folded) {
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      if (masked) {
+        showTreeContextMenu(e.clientX, e.clientY, [{ label: "🔒 已打码，不可定位", disabled: true }]);
+        return;
+      }
+      if (!node.rel_path) return;
+      const items = isDir
+        ? [
+            { label: "📂 在资源管理器中打开此文件夹", action: () => revealFile(system, node.rel_path, "open") },
+            { label: "📍 在上级中定位此文件夹", action: () => revealFile(system, node.rel_path, "select") },
+          ]
+        : [
+            { label: "📍 在资源管理器中定位文件", action: () => revealFile(system, node.rel_path, "select") },
+          ];
+      showTreeContextMenu(e.clientX, e.clientY, items);
+    });
+  }
+
   wrapper.appendChild(row);
 
   // children built lazily — only when the directory is expanded
@@ -813,21 +837,53 @@ function renderTreeNode(node, system, maxHeat) {
   return wrapper;
 }
 
-// POST /api/reveal → OS file manager selects the file. Content is NEVER shown in
-// the board; the operator inspects it in their own trusted file manager. Path
-// safety (must stay inside the target) is enforced server-side (reveal.ts).
-async function revealFile(system, relPath) {
+// POST /api/reveal → OS file manager. mode "select" locates the item (files &
+// default); mode "open" opens a FOLDER's contents (the server ignores "open" for
+// files, so a file is never opened/executed). Content is NEVER shown in the board;
+// the operator inspects it in their own file manager. Path safety (must stay
+// inside the target) is enforced server-side (reveal.ts).
+async function revealFile(system, relPath, mode = "select") {
   try {
     const res = await fetch(
-      `/api/reveal?system=${encodeURIComponent(system)}&path=${encodeURIComponent(relPath)}`,
+      `/api/reveal?system=${encodeURIComponent(system)}&path=${encodeURIComponent(relPath)}&mode=${mode}`,
       { method: "POST" },
     );
     const data = await res.json().catch(() => ({}));
-    if (res.ok && data.ok) showToast(`已在文件管理器中定位：${relPath}`);
+    if (res.ok && data.ok) showToast(mode === "open" ? `已打开文件夹：${relPath}` : `已在文件管理器中定位：${relPath}`);
     else showToast(`无法定位（${data.error || "HTTP " + res.status}）`);
   } catch (error) {
     showToast(`定位失败：${error.message || "未知错误"}`);
   }
+}
+
+// lightweight right-click menu → jump into the OS file manager. Files: locate;
+// folders: open the folder, or locate it in its parent.
+function showTreeContextMenu(x, y, items) {
+  closeContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  menu.id = "ctxMenu";
+  for (const it of items) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ctx-item" + (it.disabled ? " disabled" : "");
+    b.textContent = it.label;
+    if (!it.disabled) {
+      b.addEventListener("click", (e) => { e.stopPropagation(); closeContextMenu(); it.action(); });
+    }
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  // keep the menu inside the viewport
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, window.innerWidth - r.width - 6) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - r.height - 6) + "px";
+  setTimeout(() => document.addEventListener("click", closeContextMenu, { once: true }), 0);
+}
+
+function closeContextMenu() {
+  const m = document.getElementById("ctxMenu");
+  if (m) m.remove();
 }
 
 // log-scaled color ramp keyed to the active theme (frequency only — never file

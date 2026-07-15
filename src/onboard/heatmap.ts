@@ -41,6 +41,8 @@ export interface HeatmapLimits {
 export interface HeatmapTarget {
   system: string;
   home: string;
+  exists: boolean; // whether the target home dir is present on disk (for the UI's
+                   // "configured but not present yet" empty state — e.g. hermes)
   root: HeatNode;
 }
 
@@ -377,17 +379,18 @@ export function buildHeatmap(cfg: Config, opts: HeatmapOptions = {}): HeatmapRep
 
   const targets: HeatmapTarget[] = cfg.targets.map((t) => {
     const homeAbs = path.resolve(t.home);
+    const exists = fs.existsSync(homeAbs);
     const root = newBuild(t.system);
     root.ticketDir = true;
     buildChangedTree(root, tickets, t.system);
 
-    if (fullTree && fs.existsSync(homeAbs)) {
+    if (fullTree && exists) {
       const ignore = (t.ignore || []).map(globToRegExp);
       walkFsInto(root, homeAbs, ignore, budget);
     }
 
     const heatRoot = convert(root, "", 0, false, ctx);
-    return { system: t.system, home: homeAbs.replace(/\\/g, "/"), root: heatRoot };
+    return { system: t.system, home: homeAbs.replace(/\\/g, "/"), exists, root: heatRoot };
   });
 
   return {

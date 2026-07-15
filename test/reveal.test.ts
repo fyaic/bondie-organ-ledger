@@ -20,13 +20,20 @@ function tgt(home: string): Target {
   return { system: "openclaw", home, watch: [], git: true, ignore: [] };
 }
 
-test("legal in-target path resolves ok, and the abs path stays inside home", () => {
+test("legal in-target path resolves ok, abs stays inside home, isDir reported", () => {
   const home = mktmp("ol-rev-ok-");
   fs.mkdirSync(path.join(home, "skills", "eye-on"), { recursive: true });
   fs.writeFileSync(path.join(home, "skills", "eye-on", "SKILL.md"), "x");
-  const d = resolveReveal("openclaw", "skills/eye-on/SKILL.md", [tgt(home)]);
-  assert.equal(d.ok, true);
-  if (d.ok) assert.ok(d.abs === home || d.abs.startsWith(home + path.sep), "resolved abs is inside home");
+
+  const file = resolveReveal("openclaw", "skills/eye-on/SKILL.md", [tgt(home)]);
+  assert.equal(file.ok, true);
+  if (file.ok) {
+    assert.ok(file.abs === home || file.abs.startsWith(home + path.sep), "resolved abs is inside home");
+    assert.equal(file.isDir, false, "a file is not a directory");
+  }
+  const dir = resolveReveal("openclaw", "skills/eye-on", [tgt(home)]);
+  assert.equal(dir.ok, true);
+  if (dir.ok) assert.equal(dir.isDir, true, "a directory is flagged isDir (gates open-mode)");
 });
 
 // ---- SECURITY 1: traversal / absolute / empty are rejected 403 and NEVER spawn
@@ -45,7 +52,7 @@ test("SECURITY: traversal / absolute / empty paths → 403 and spawn is never ca
     if (!d.ok) assert.equal(d.status, 403, `403 expected for: ${p}`);
     // mirror the server: revealInOS is only reached when d.ok — so a rejected
     // path can never cause a spawn.
-    if (d.ok) revealInOS(d.abs, spy);
+    if (d.ok) revealInOS(d.abs, {}, spy);
   }
   // empty path (what a redacted node's blanked rel_path yields) is also refused
   const empty = resolveReveal("openclaw", "", targets);
@@ -87,34 +94,43 @@ test("unknown system → 404; a nonexistent in-target path → 404 (no spawn eit
   if (!noPath.ok) assert.equal(noPath.status, 404, "missing path is 404");
 });
 
-// ---- SECURITY 3: the OS command LOCATES only, never opens/executes ------------
-test("osRevealCommand only LOCATES (select/-R), never opens/executes, and uses array args", () => {
+// ---- SECURITY 3: the default command LOCATES only, never opens/executes -------
+test("osRevealCommand default LOCATES (select/-R), never opens/executes, and uses array args", () => {
   const abs = path.join(path.sep === "\\" ? "C:\\" : "/", "Users", "x", "f.md");
 
-  const win = osRevealCommand(abs, "win32");
+  const win = osRevealCommand(abs, {}, "win32");
   assert.equal(win.cmd, "explorer");
   assert.ok(win.args[0].startsWith("/select,"), "win uses /select (locate), not 'start' (which opens/executes)");
   assert.ok(!JSON.stringify(win).includes('"start"'), "never invokes 'start'");
 
-  const mac = osRevealCommand(abs, "darwin");
+  const mac = osRevealCommand(abs, {}, "darwin");
   assert.deepEqual(mac, { cmd: "open", args: ["-R", abs] }, "mac uses 'open -R' (reveal in Finder), not 'open <file>'");
 
-  const lin = osRevealCommand(abs, "linux");
+  const lin = osRevealCommand(abs, {}, "linux");
   assert.equal(lin.cmd, "xdg-open");
   assert.equal(lin.args.length, 1);
   assert.notEqual(lin.args[0], abs, "linux opens the CONTAINING directory, not the file itself");
 
-  // every command is an argument array of strings — never concatenated into a shell string
   for (const c of [win, mac, lin]) {
     assert.ok(Array.isArray(c.args) && c.args.every((a) => typeof a === "string"), "args is string[]");
   }
+});
+
+// ---- open-mode: opens a FOLDER's contents (only ever passed for directories) --
+test("osRevealCommand open-mode opens the folder itself (right-click 打开文件夹)", () => {
+  const dir = path.join(path.sep === "\\" ? "C:\\" : "/", "Users", "x", "skills");
+  assert.deepEqual(osRevealCommand(dir, { open: true }, "win32"), { cmd: "explorer", args: [dir] }, "win opens the folder (no /select)");
+  assert.deepEqual(osRevealCommand(dir, { open: true }, "darwin"), { cmd: "open", args: [dir] }, "mac opens the folder");
+  assert.deepEqual(osRevealCommand(dir, { open: true }, "linux"), { cmd: "xdg-open", args: [dir] }, "linux opens the folder");
+  // NOTE: the server only sets open:true when the resolved path isDir, so a FILE
+  // can never reach open-mode — it is always selected, never launched.
 });
 
 test("revealInOS passes the command to spawn as an ARRAY (injection-safe), detached + stdio ignore", () => {
   const abs = process.platform === "win32" ? "C:\\x\\f.md" : "/x/f.md";
   let seen: { cmd: string; args: unknown; opts: any } | null = null;
   const spy = ((cmd: string, args: unknown, opts: any) => { seen = { cmd, args, opts }; return { unref() {} }; }) as any;
-  revealInOS(abs, spy);
+  revealInOS(abs, {}, spy);
   assert.ok(seen, "spawn was called for a vetted path");
   assert.ok(Array.isArray(seen!.args), "args is an array, not a shell string (no injection surface)");
   assert.equal(seen!.opts.detached, true, "spawned detached");

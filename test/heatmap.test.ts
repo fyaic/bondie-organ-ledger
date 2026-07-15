@@ -249,6 +249,7 @@ test("missing/empty target is a safe no-op (hermes not present) — empty tree, 
   const tgt: Target = { system: "hermes", home: missing, watch: ["skills"], git: false, ignore: [] };
   const report = buildHeatmap(cfgFor(home, tgt), { window: "all" }); // full tree default
   assert.equal(report.targets.length, 1);
+  assert.equal(report.targets[0].exists, false, "missing target home is flagged exists:false (UI shows 'not present yet')");
   const root = report.targets[0].root;
   assert.equal(root.change_count, 0, "no tickets, no fs → zero heat");
   assert.deepEqual(root.children, [], "empty tree, not a crash");

@@ -766,3 +766,21 @@ strong,
 .tree-row.masked .tree-name { letter-spacing: 1px; }
 /* nested levels carry no extra box — indentation is via inline padding-left */
 .tree-children { display: block; }
+
+/* right-click menu — jump into the OS file manager */
+.ctx-menu {
+  position: fixed; z-index: 50; min-width: 190px;
+  display: flex; flex-direction: column; gap: 1px; padding: 4px;
+  background: var(--ol-surface);
+  border: 1px solid var(--ol-border); border-radius: var(--ol-radius-card);
+  box-shadow: 0 14px 36px -14px var(--ol-shadow);
+  font-family: var(--ol-font-body);
+}
+.ctx-item {
+  min-height: 32px; padding: 0 12px; text-align: left;
+  border: 0; border-radius: var(--ol-radius); background: transparent;
+  color: var(--ol-text); font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.ctx-item:hover { background: var(--ol-accent-soft); filter: none; }
+.ctx-item.disabled { color: var(--ol-text-faint); cursor: default; }
+.ctx-item.disabled:hover { background: transparent; }
