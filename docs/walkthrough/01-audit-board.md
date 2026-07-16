@@ -37,7 +37,7 @@
 
 在状态列（待确认 / 已观测 / 已批准 / 已拒绝）里点任意一张变更卡片，右侧会滑出详情抽屉。
 
-![单条变更详情抽屉](assets/02-board-drawer.png)
+![单条变更详情抽屉](assets/04-activity-day-drawer-detail.png)
 
 抽屉把这条改动的全部证据摆清楚：状态、操作类型、系统、原因、**before / after 哈希**、git commit、session、author、时间。哈希链就是账本可信的根基——同一改动在 Windows 和 macOS 上会产出相同的哈希，任何篡改都能被 `verify-ledger` 查出。
 
