@@ -40,6 +40,20 @@ function norm(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+// Canonicalize to the real path (resolving symlinks) so comparisons against
+// `git rev-parse --show-toplevel` — which always returns the realpath — hold.
+// On macOS `/var` and `/tmp` are symlinks into `/private`, so `path.resolve`
+// alone yields `/var/...` while git yields `/private/var/...`; without this the
+// homeAbs === repoRoot / childRoot === childAbs checks below silently miss every
+// embedded repo. Falls back to path.resolve for a not-yet-existing path.
+function canonicalPath(p: string): string {
+  try {
+    return fs.realpathSync(path.resolve(p));
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 // repo root of `dir`, or null if not inside a work tree.
 function revParseToplevel(dir: string): string | null {
   const r = gitSafe(dir, ["rev-parse", "--show-toplevel"]);
@@ -51,7 +65,7 @@ function revParseToplevel(dir: string): string | null {
 // found by descending one level into each watched dir (skills/<name>/.git); the
 // watched dir itself is also probed (in case it is its own repo).
 export function resolveSources(target: Target): GitSource[] {
-  const homeAbs = norm(path.resolve(target.home));
+  const homeAbs = norm(canonicalPath(target.home));
   const parentRoot = revParseToplevel(homeAbs);
 
   // root -> covered organ dirs (relative to home)

@@ -73,11 +73,15 @@ export function loadBoard(filters: BoardFilters = {}, ledgerHome = defaultLedger
     byId.set(ticket.change_id, ticket);
   }
 
+  // Filter FIRST, then sort by recency, then cap — the 500-cap must bound the most
+  // recent MATCHING tickets. (A backfilled ledger's file order isn't chronological,
+  // so .slice(-500) on raw order could drop the newest tickets and leave the default
+  // "recent" KPI empty even when recent data exists.)
   const cards = Array.from(byId.values())
-    .slice(-500)
     .map(toCard)
     .filter((card) => matchesFilters(card, filters))
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .slice(0, 500);
 
   return {
     kpi: buildKpi(cards, filters, p.reports),

@@ -1,0 +1,26 @@
+# 钉死行尾为 LF，保证 sha256 哈希链跨平台字节一致。
+# 无此文件时 Windows 默认 core.autocrlf=true 会在 checkout 注入 CRLF，
+# 导致 fileSha() 对工作区算的 hash 与 HEAD(LF) 不符 → 账本哈希链断裂。
+* text=auto eol=lf
+
+# 源码与数据显式 LF
+*.ts    text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.py    text eol=lf
+*.json  text eol=lf
+*.jsonl text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.sh    text eol=lf
+
+# 二进制：禁止任何换行/文本转换
+*.png   binary
+*.ico   binary
+*.pyc   binary
+*.woff  binary
+*.woff2 binary

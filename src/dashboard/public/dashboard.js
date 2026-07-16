@@ -320,6 +320,7 @@ function dot(color, text) {
 }
 
 function renderBoardColumns(board) {
+  if (!el.board) return; // status lanes removed — dashboard home is KPI overview only
   if (state.view === "severity") {
     const cards = flattenCards(board);
     el.board.replaceChildren(...SEVERITY_META.map(([severity, title]) => {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OrganLedger Dashboard</title>
+    <title>OrganLedger 智能体变更审计</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="stylesheet" href="/dashboard.css" />
     <script>
@@ -15,7 +15,7 @@
       <!-- ===== TIER 1: primary header — IDENTICAL across all three views ===== -->
       <header class="topbar">
         <div class="brand">
-          <p class="eyebrow">OrganLedger</p>
+          <p class="eyebrow">OrganLedger 智能体变更审计</p>
           <h1>审计看板</h1>
         </div>
         <nav class="segmented topnav" role="group" aria-label="视图">
@@ -37,10 +37,6 @@
       <div class="subbar" aria-label="视图控件">
         <!-- board-only controls -->
         <div id="boardControls" class="controls-group">
-          <div class="segmented" role="group" aria-label="看板视图">
-            <button class="active" type="button" data-view="status">状态</button>
-            <button type="button" data-view="severity">严重度</button>
-          </div>
           <select id="dateFilter" aria-label="日期">
             <option value="recent">近 7 天</option>
             <option value="today">今日</option>
@@ -133,8 +129,6 @@
       <section id="reportsBar" class="reports-bar" aria-label="近期日报" data-viewgroup="board" hidden></section>
 
       <section id="sourcesPanel" class="sources-panel" aria-label="器官来源" data-viewgroup="board" hidden></section>
-
-      <section id="board" class="board" aria-label="看板" data-viewgroup="board"></section>
 
       <!-- ===== 日志 / Activity view ===== -->
       <section id="activityView" class="activity-view" aria-label="活动日志" hidden>
