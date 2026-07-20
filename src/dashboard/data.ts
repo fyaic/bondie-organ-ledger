@@ -15,6 +15,13 @@ const UPSTREAM_KINDS = new Set(["pull", "merge", "clone"]);
 // principal (who-caused-it) filter — by attribution.principal.kind. "im-user"
 // spans both channels; a card with no attribution counts as "unknown".
 export type BoardPrincipalFilter = "all" | "im-user" | "autonomous" | "local" | "unknown";
+// writer (修改者) filter — Phase 2.1 refinement of the previously-opaque "local" bucket,
+// by the host-log JOIN match. ALL are WEAK (path+time), never proven:
+//   dev              = match:"dev-log"           本机·开发（编码工具日志认领）
+//   agent-autonomous = match:"agent-log"|"elimination"  agent·自主（含排除法推断）
+//   ambiguous        = match:"ambiguous"          多源争用（不判定）
+//   unrefined        = everything else (in-band principal matches / none / untagged)
+export type BoardWriterFilter = "all" | "dev" | "agent-autonomous" | "ambiguous" | "unrefined";
 
 export interface BoardFilters {
   date?: BoardDateFilter;
@@ -22,6 +29,7 @@ export interface BoardFilters {
   severity?: BoardSeverityFilter;
   provenance?: BoardProvenanceFilter;
   principal?: BoardPrincipalFilter;
+  writer?: BoardWriterFilter;
   q?: string;
 }
 
@@ -98,7 +106,10 @@ export interface AttributionStats {
   total: number;
   byKind: Record<BoardPrincipalFilter, number>; // im-user / autonomous / local / unknown
   byChannel: Record<string, number>;            // wecom / feishu / … (im-user only)
-  byMatch: Record<string, number>;              // turn-id / session / time-window / none
+  byMatch: Record<string, number>;              // turn-id / session / time-window / none / dev-log / agent-log / elimination / ambiguous
+  // Phase 2.1 修改者 (writer) distribution over the local-write refinement. ALL weak.
+  // dev / agent-autonomous / ambiguous / unrefined sum to total (no silent gaps).
+  byWriter: Record<Exclude<BoardWriterFilter, "all">, number>;
   verifiedAttested: number;                     // im-user + platform-attested (the only true-verified bucket)
   requested: number;                            // autonomy:"requested" (faithfulness UNPROVEN)
   date: BoardDateFilter;
@@ -117,12 +128,14 @@ export function buildAttributionStats(
   const byKind: Record<BoardPrincipalFilter, number> = { "all": 0, "im-user": 0, autonomous: 0, local: 0, unknown: 0 };
   const byChannel: Record<string, number> = {};
   const byMatch: Record<string, number> = {};
+  const byWriter: Record<Exclude<BoardWriterFilter, "all">, number> = { dev: 0, "agent-autonomous": 0, ambiguous: 0, unrefined: 0 };
   let verifiedAttested = 0;
   let requested = 0;
 
   for (const card of cards) {
     const kind = principalKindOf(card);
     byKind[kind]++;
+    byWriter[writerBucketOf(card)]++;
     const a = card.attribution;
     const match = a?.match ?? "none";
     byMatch[match] = (byMatch[match] ?? 0) + 1;
@@ -134,7 +147,7 @@ export function buildAttributionStats(
     if (a?.autonomy === "requested") requested++;
   }
   delete (byKind as Record<string, number>)["all"];
-  return { total: cards.length, byKind, byChannel, byMatch, verifiedAttested, requested, date: filters.date || "all" };
+  return { total: cards.length, byKind, byChannel, byMatch, byWriter, verifiedAttested, requested, date: filters.date || "all" };
 }
 
 function readHeldTickets(heldDir: string): Ticket[] {
@@ -184,12 +197,24 @@ function principalKindOf(card: DashboardCard): BoardPrincipalFilter {
   return "unknown";
 }
 
+// Phase 2.1 修改者 bucket of a card, from the host-log JOIN match (all weak). Cards
+// not refined by the 2.1 layer (in-band principal matches / none / untagged) fall to
+// "unrefined" so the four buckets always cover every card (no silent gaps).
+export function writerBucketOf(card: DashboardCard): Exclude<BoardWriterFilter, "all"> {
+  const m = card.attribution?.match;
+  if (m === "dev-log") return "dev";
+  if (m === "agent-log" || m === "elimination") return "agent-autonomous";
+  if (m === "ambiguous") return "ambiguous";
+  return "unrefined";
+}
+
 function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
   const date = filters.date || "recent";
   const system = filters.system || "all";
   const severity = filters.severity || "all";
   const provenance = filters.provenance || "all";
   const principal = filters.principal || "all";
+  const writer = filters.writer || "all";
   const q = (filters.q || "").trim().toLowerCase();
 
   if (!matchesDate(card.created_at, date)) return false;
@@ -201,6 +226,7 @@ function matchesFilters(card: DashboardCard, filters: BoardFilters): boolean {
     if (provenance === "agent" && isUpstream) return false;
   }
   if (principal !== "all" && principalKindOf(card) !== principal) return false;
+  if (writer !== "all" && writerBucketOf(card) !== writer) return false;
   if (q && !card.file.toLowerCase().includes(q) && !card.change_id.toLowerCase().includes(q)) return false;
   return true;
 }

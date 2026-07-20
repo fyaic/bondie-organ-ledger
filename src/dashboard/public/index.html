@@ -59,12 +59,19 @@
             <option value="upstream">上游更新</option>
             <option value="agent">本地改动</option>
           </select>
-          <select id="principalFilter" aria-label="修改者" title="修改者：谁改的 —— IM 用户 / agent / 本机（多不可验证）">
-            <option value="all">修改者</option>
+          <select id="principalFilter" aria-label="主使" title="主使：谁请求的 —— IM 用户 / agent 自主 / 本机 / 未知（多不可验证）">
+            <option value="all">主使（谁请求）</option>
             <option value="im-user">IM 用户请求</option>
             <option value="autonomous">agent 自主</option>
             <option value="local">本机</option>
             <option value="unknown">未知</option>
+          </select>
+          <select id="writerFilter" aria-label="修改者" title="修改者（本机写入细分·全部弱证据 path+time）：本机·开发(编码工具) vs agent·自主(含排除法) vs 多源争用">
+            <option value="all">修改者（本机细分）</option>
+            <option value="dev">🧑‍💻 本机·开发</option>
+            <option value="agent-autonomous">🤖 agent·自主</option>
+            <option value="ambiguous">⚠ 多源争用</option>
+            <option value="unrefined">· 未细分</option>
           </select>
           <input id="queryFilter" type="search" placeholder="文件或 change id" />
         </div>

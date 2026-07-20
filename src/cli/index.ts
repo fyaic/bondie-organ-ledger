@@ -280,6 +280,14 @@ async function main(): Promise<void> {
       console.log(`    ❔ 未知 unknown(未插桩)   : ${stats.byKind.unknown} (${pct(stats.byKind.unknown)})   ← no silent gaps`);
       const channels = Object.keys(stats.byChannel);
       if (channels.length) console.log(`  渠道 channel: ${channels.map((c) => `${c}=${stats.byChannel[c]}`).join(", ")}`);
+      // Phase 2.1 修改者 (writer) — refines the opaque local bucket. ALL weak (path+time).
+      const w = stats.byWriter;
+      const elim = stats.byMatch["elimination"] ?? 0;
+      console.log(`  修改者 writer（本机写入细分 · 全部弱证据 path+time，非证明）:`);
+      console.log(`    🧑‍💻 本机·开发 dev-log        : ${w.dev} (${pct(w.dev)})`);
+      console.log(`    🤖 agent·自主 agent-log/排除法 : ${w["agent-autonomous"]} (${pct(w["agent-autonomous"])})   其中排除法推断 elimination=${elim}`);
+      console.log(`    ⚠ 多源争用 ambiguous(不判定)  : ${w.ambiguous} (${pct(w.ambiguous)})`);
+      console.log(`    · 未细分 unrefined(in-band/无匹配): ${w.unrefined} (${pct(w.unrefined)})`);
       console.log(`  关联强度 match: ${Object.keys(stats.byMatch).map((m) => `${m}=${stats.byMatch[m]}`).join(", ")}`);
       console.log(`  ✅ 已认证主使 verified(=im-user+platform-attested,非密码学证明): ${stats.verifiedAttested} (${pct(stats.verifiedAttested)})`);
       console.log(`  📩 autonomy=requested(据本轮请求·忠实性未证): ${stats.requested}`);

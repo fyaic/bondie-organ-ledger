@@ -67,6 +67,7 @@ const el = {
   provenance: document.querySelector("#provenanceFilter"),
   principal: document.querySelector("#principalFilter"),
   principalNote: document.querySelector("#principalNote"),
+  writer: document.querySelector("#writerFilter"),
   sources: document.querySelector("#sourcesPanel"),
   q: document.querySelector("#queryFilter"),
   refresh: document.querySelector("#refreshButton"),
@@ -117,7 +118,7 @@ function bindEvents() {
   for (const button of el.viewButtons) {
     button.addEventListener("click", () => setView(button.dataset.view));
   }
-  for (const control of [el.date, el.system, el.severity, el.provenance, el.principal].filter(Boolean)) {
+  for (const control of [el.date, el.system, el.severity, el.provenance, el.principal, el.writer].filter(Boolean)) {
     control.addEventListener("change", loadBoard);
   }
   el.q.addEventListener("input", debounce(loadBoard, 180));
@@ -202,6 +203,7 @@ async function loadBoard() {
       severity: el.severity.value,
       provenance: el.provenance.value,
       principal: el.principal ? el.principal.value : "all",
+      writer: el.writer ? el.writer.value : "all",
       q: el.q.value.trim(),
     });
     const response = await fetch(`/api/board?${params.toString()}`);
@@ -374,6 +376,7 @@ function renderCard(card) {
       ${pill(card.severity)}
       ${pill(card.system)}
       ${principalBadge(card.attribution)}
+      ${writerBadge(card.attribution)}
     </span>
     <span class="time">${formatDate(card.created_at)}</span>
   `;
@@ -396,6 +399,19 @@ function principalBadge(a) {
   return `<span class="pill principal-pill local" title="本机改动，不区分你/CC/agent">🖥 本机（未验证）</span>`;
 }
 
+// Compact 修改者 (writer) badge — Phase 2.1 refinement of the local bucket by host-log
+// JOIN. ALWAYS dashed/weak (path+time collision ≠ proof); elimination adds "排除法",
+// ambiguous shows "多源争用". Cards not refined by 2.1 render no writer badge (keeps
+// the card clean; the principal badge already covers them).
+function writerBadge(a) {
+  const m = a && a.match;
+  if (m === "dev-log") return `<span class="pill writer-pill weak dev" title="编码工具日志按 (路径+时间窗) 认领——弱证据，非证明">🧑‍💻 本机·开发 <span class="weak-tag">弱</span></span>`;
+  if (m === "agent-log") return `<span class="pill writer-pill weak agent" title="agent 运行时日志按 (路径+时间窗) 认领——弱证据，非证明">🤖 agent·自主 <span class="weak-tag">弱</span></span>`;
+  if (m === "elimination") return `<span class="pill writer-pill weak elim" title="无任何编码工具日志认领，且落在 agent 器官根内——排除法推断（最弱），前提：人类编辑均经工具日志">🤖 agent·自主 <span class="weak-tag">排除法</span></span>`;
+  if (m === "ambiguous") return `<span class="pill writer-pill weak amb" title="DEV 与 AGENT 日志都在时间窗内命中——不判定，退回本机">⚠ 多源争用</span>`;
+  return "";
+}
+
 function openDrawer(card) {
   el.drawerBody.innerHTML = `
     <h2>${escapeHtml(card.file)}</h2>
@@ -413,6 +429,7 @@ function openDrawer(card) {
       ${detail("时间", card.created_at)}
     </div>
     ${attributionBlock(card.attribution)}
+    ${writerBlock(card.attribution)}
     ${provenanceBlock(card.provenance)}
     ${actionsBlock(card)}
     ${briefingBlock("此改动")}
@@ -610,7 +627,12 @@ function provenanceBlock(p) {
 
 const MATCH_LABEL = {
   "turn-id": "精确关联（turn-id）", "session": "会话关联", "time-window": "时间窗关联（弱）", "none": "未关联",
+  // Phase 2.1 host-log writer matches — ALL weak (path+time collision ≠ proof).
+  "dev-log": "编码工具日志（弱·path+time）", "agent-log": "agent 运行时日志（弱·path+time）",
+  "elimination": "排除法推断（最弱·假设人类编辑均经工具日志）", "ambiguous": "多源争用（不判定）",
 };
+// which match values are the Phase 2.1 weak writer joins (render with a dashed weak badge).
+const WEAK_WRITER_MATCHES = new Set(["dev-log", "agent-log", "elimination", "ambiguous", "time-window"]);
 
 // Drawer attribution block: the PRINCIPAL (who-caused-it) dimension. The copy is
 // deliberately honest — it separates "whose hand wrote it" (writer) from "whose
@@ -655,6 +677,31 @@ function attributionBlock(a) {
       <div class="attr-verify">${verifyLine}</div>
       ${autonomyLine}
       ${matchLine}
+    </div>
+  `;
+}
+
+// Drawer 修改者 (writer) evidence block — Phase 2.1. Shows ONLY the weak C-tier join
+// metadata (source / ref / Δt / premise), NEVER the host-log text or file content
+// (dashboard privacy red line). Rendered only for the four 2.1 writer matches.
+function writerBlock(a) {
+  if (!a || !WEAK_WRITER_MATCHES.has(a.match) || a.match === "time-window") return "";
+  const e = a.writer_evidence;
+  const head = a.match === "elimination" ? "排除法推断（最弱）" : a.match === "ambiguous" ? "多源争用（不判定）" : "本机写入·日志归因（弱）";
+  const rows = [];
+  rows.push(`<div class="attr-match weak">判据：${escapeHtml(MATCH_LABEL[a.match] || a.match)} ⚠️ <em>路径+时间撞上 ≠ 证明</em></div>`);
+  if (a.local_writer === "dev") rows.push(`<div class="attr-who">🧑‍💻 本机·开发写入（编码工具，不区分你 / 工具本身）</div>`);
+  if (e) {
+    if (e.source) rows.push(detail("证据来源 source", e.source + (e.actor_class ? ` · ${e.actor_class}` : "")));
+    if (e.ref) rows.push(detail("定位 ref", e.ref));
+    if (typeof e.delta_ms === "number") rows.push(detail("时间差 Δt", `${e.delta_ms} ms`));
+    if (e.rivals && e.rivals.length) rows.push(detail("争用候选 rivals", e.rivals.map((r) => `${r.source}(${r.actor_class},Δ${r.delta_ms}ms)`).join(" · ")));
+    if (e.note) rows.push(`<div class="attr-caveat">📝 ${escapeHtml(e.note)}</div>`);
+  }
+  return `
+    <div class="attribution writer-attr">
+      <div class="attr-head"><span class="attr-title">修改者（弱证据）</span> <span class="weak-tag">${escapeHtml(head)}</span></div>
+      ${rows.join("\n")}
     </div>
   `;
 }

@@ -64,6 +64,22 @@ export function expandHome(p: string): string {
   return p;
 }
 
+// Cross-platform path canonicalization — the JOIN key for Phase 2.1 writer
+// attribution. Both sides of the (ticket absPath ↔ host-log path) match run through
+// this so Claude's backslashes, Kimi's forward slashes, and Codex's cwd-relative
+// paths all collapse to ONE comparable string. Same-source坑 as OrganLedger-兼容加固.
+//   * "\" → "/", drop trailing slash(es), drive letter upper-cased
+//   * Windows: NTFS is case-insensitive → lower the whole string
+//   * POSIX: case-sensitive → NEVER lower (only slash/drive normalize)
+// The platform branch (not a blanket lower()) is the crux: a blanket lower breaks
+// Mac where /Users/Ryshi ≠ /users/ryshi.
+export function canonPath(p: string): string {
+  let s = p.replace(/\\/g, "/"); // backslash → forward slash
+  s = s.replace(/\/+$/, "");      // drop trailing slash(es)
+  if (/^[a-zA-Z]:\//.test(s)) s = s[0].toUpperCase() + s.slice(1); // C:/ drive letter upper
+  return process.platform === "win32" ? s.toLowerCase() : s;
+}
+
 export function loadConfig(ledgerHome?: string): Config {
   const home = expandHome(ledgerHome || defaultLedgerHome());
   const cfgPath = path.join(home, "config.json");

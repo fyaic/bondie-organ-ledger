@@ -120,6 +120,7 @@ function parseFilters(url: URL): BoardFilters {
     severity: (url.searchParams.get("severity") || "all") as BoardFilters["severity"],
     provenance: (url.searchParams.get("provenance") || "all") as BoardFilters["provenance"],
     principal: (url.searchParams.get("principal") || "all") as BoardFilters["principal"],
+    writer: (url.searchParams.get("writer") || "all") as BoardFilters["writer"],
     q: url.searchParams.get("q") || "",
   };
 }

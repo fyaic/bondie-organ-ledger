@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import { gitShowHead, sha256, fileSha, nowIso } from "../util.ts";
 import type { Ledger } from "./ledger.ts";
 import type { PrincipalIndex } from "./principal-index.ts";
+import type { WriterIndex } from "./writer-index.ts";
 import type {
   OrganEvent, Target, Ticket, TicketAuthor, EventCtx,
   Attribution, Principal, AttributionMatch,
@@ -65,7 +66,13 @@ function unknownPrincipal(): Principal {
 // tickets (those never flow through normalize), so it needs no branch here.
 export function resolveAttribution(
   evt: OrganEvent,
-  index: PrincipalIndex | null
+  index: PrincipalIndex | null,
+  // Phase 2.1 (OPTIONAL, additive): when a WriterIndex + the write's absolute path are
+  // supplied, the out-of-band branch JOINs the bare write against local host logs by
+  // (absPath, ±window) to refine writer=local into dev vs agent (all WEAK, verified:false).
+  // Omitting either argument reproduces the exact Phase 2 behavior (pure local/none).
+  writerIndex: WriterIndex | null = null,
+  absPath: string | null = null
 ): Attribution {
   if (evt.source === "in-band") {
     let rec = null as ReturnType<PrincipalIndex["byTurn"]>;
@@ -101,8 +108,30 @@ export function resolveAttribution(
       ? { writer: "agent-runtime", principal: autonomousPrincipal(), autonomy: "self", turn_id: evt.ctx.turn_id ?? null, match: "none" }
       : { writer: "agent-runtime", principal: unknownPrincipal(), autonomy: "unknown", turn_id: null, match: "none" };
   }
-  // out-of-band file write (chokidar): no session/turn → local, unverified.
-  return { writer: "local", principal: localPrincipal(), autonomy: "unknown", turn_id: null, match: "none" };
+  // out-of-band file write (chokidar): no session/turn. Phase 2 baseline is
+  // local/unverified/none; Phase 2.1 optionally refines the WRITER (never the
+  // principal's verified bit) via the host-log JOIN below.
+  const localBase: Attribution = { writer: "local", principal: localPrincipal(), autonomy: "unknown", turn_id: null, match: "none" };
+  if (!writerIndex || !absPath) return localBase; // no index / no path → exact Phase 2 behavior
+  const tsMs = Date.parse(evt.ts);
+  if (Number.isNaN(tsMs)) return localBase;
+  const r = writerIndex.matchOutOfBand(absPath, tsMs);
+  switch (r.match) {
+    case "dev-log":
+      // a local coding tool logged this write → still writer:local (we DON'T split you
+      // vs Claude Code), but flagged as dev with weak evidence. principal stays local.
+      return { ...localBase, match: "dev-log", local_writer: "dev", writer_evidence: r.evidence };
+    case "agent-log":
+    case "elimination":
+      // an agent runtime wrote it (positively logged, or weakly inferred by elimination)
+      // → writer:agent-runtime, principal autonomous, verified:false. autonomy from r.
+      return { writer: "agent-runtime", principal: autonomousPrincipal(), autonomy: r.autonomy, turn_id: null, match: r.match, writer_evidence: r.evidence };
+    case "ambiguous":
+      // both a DEV and an AGENT log matched → never guess; stay local, attach rivals.
+      return { ...localBase, match: "ambiguous", writer_evidence: r.evidence };
+    default:
+      return localBase; // "none"
+  }
 }
 
 export interface NormalizeOutput {
@@ -115,7 +144,8 @@ export function normalize(
   evt: OrganEvent,
   target: Target,
   ledger: Ledger,
-  principalIndex: PrincipalIndex | null = null
+  principalIndex: PrincipalIndex | null = null,
+  writerIndex: WriterIndex | null = null
 ): NormalizeOutput {
   const rel = evt.path.replace(/\\/g, "/");
   const abs = path.join(target.home, rel);
@@ -155,7 +185,8 @@ export function normalize(
     prev_ticket_hash: "",      // set by ledger.append
     created_at: nowIso(),
     // Phase 2: who-caused-it. Additive; carries its own verified semantics.
-    attribution: resolveAttribution(evt, principalIndex),
+    // Phase 2.1: the out-of-band branch also refines the WRITER via host logs (abs path).
+    attribution: resolveAttribution(evt, principalIndex, writerIndex, abs),
   };
 
   return { ticket, beforeText, afterText };

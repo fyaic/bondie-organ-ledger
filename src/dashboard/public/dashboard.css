@@ -795,6 +795,17 @@ strong,
 .attr-match { font-size: 11.5px; color: var(--ol-text-muted); border-top: 1px dashed var(--ol-border); padding-top: 6px; margin-top: 6px; }
 .attr-match.weak { color: var(--ol-orange, #c08a3e); }
 
+/* Phase 2.1 修改者 (writer) — ALWAYS weak: a dashed border signals "path+time, not proven". */
+.writer-pill { font-weight: 600; }
+.writer-pill.weak { border: 1px dashed var(--ol-orange, #c08a3e); background: transparent; color: var(--ol-orange, #c08a3e); }
+.writer-pill.dev { color: var(--ol-cyan, #5ba8be); border-color: var(--ol-cyan, #5ba8be); }
+.writer-pill.agent, .writer-pill.elim, .writer-pill.amb { color: var(--ol-orange, #c08a3e); }
+.weak-tag {
+  font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 6px;
+  border: 1px dashed currentColor; opacity: 0.9;
+}
+.attribution.writer-attr { border-left: 3px dashed var(--ol-orange, #c08a3e); }
+
 /* ===== top-level views (看板 | 日志 | 热力图) ============================ */
 /* [hidden] must beat explicit display: values (display:flex would otherwise
    defeat the attribute and leak hidden views/controls). */

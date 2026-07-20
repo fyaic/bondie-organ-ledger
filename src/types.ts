@@ -116,7 +116,17 @@ export type Autonomy = "requested" | "self" | "unknown";
 export type Attestation = "platform-attested" | "unverified" | null;
 // JOIN strength between the write event and the principal-turn record (honest):
 // "turn-id" exact > "session" > "time-window" (weak, nearest-in-session) > "none".
-export type AttributionMatch = "turn-id" | "session" | "time-window" | "none";
+// Phase 2.1 (host-log writer attribution, additive): the out-of-band branch JOINs a
+// bare file write against local coding/agent transcripts by (absPath, ±time window).
+// ALL of these are WEAK (path+time collision ≠ proof) and carry verified:false:
+//   "dev-log"     a DEV coding tool (Claude Code/Codex/Kimi) logged this write
+//   "agent-log"   an AGENT runtime (Hermes via Kimi) logged this write
+//   "elimination" NO tool log claimed it AND it landed inside an agent organ root
+//                 → weakly inferred agent (assumes human edits go through tool logs)
+//   "ambiguous"   both a DEV and an AGENT log matched → never guess, stay local
+export type AttributionMatch =
+  | "turn-id" | "session" | "time-window" | "none"        // Phase 2 (principal line)
+  | "dev-log" | "agent-log" | "elimination" | "ambiguous"; // Phase 2.1 (writer line, all weak)
 
 export interface Principal {
   kind: PrincipalKind;
@@ -133,6 +143,39 @@ export interface Attribution {
   autonomy: Autonomy;         // "requested" ≠ faithful (best-effort; faithfulness unproven)
   turn_id: string | null;     // the joined turn; null = not correlated
   match: AttributionMatch;    // JOIN strength (honestly labelled; time-window is weak)
+  // ---- Phase 2.1 host-log writer attribution (OPTIONAL + additive) ----------
+  // Same byte-safety guarantee as provenance/attribution: undefined ⇒ canonicalJson
+  // omits the key ⇒ old ticket bytes + the hash chain are unchanged. Populated ONLY
+  // on out-of-band writes when a WriterIndex is wired; all are WEAK (path+time) and
+  // NEVER promote principal.verified. See writer-index.ts / normalizer.ts.
+  local_writer?: "dev" | null;      // writer:"local" refinement: a local coding tool wrote it
+  writer_evidence?: WriterEvidence; // the C-tier (path+time) hit that backs match:dev-log/agent-log/elimination/ambiguous
+}
+
+// The weak (C-tier) evidence that backs a Phase 2.1 host-log writer match. It records
+// WHICH host log matched by (absolute path, ±time window) — never the log/file content
+// (dashboard privacy red line). matched_by is always "path+time" so UI/CLI must render
+// it as weak: a path+time collision is NOT proof the write came from that tool.
+export interface WriterEvidence {
+  source: "claude-code" | "codex" | "kimi-code" | "hermes" | "openclaw";
+  actor_class: "dev" | "agent";
+  ref: string;             // back-reference for auditing: <logFile>#<id|line>, or organ-root:<system> for elimination
+  matched_by: "path+time"; // literal — the honest, weak join key (never render as proven)
+  delta_ms?: number;       // |ticket.tsMs − log.tsMs| for the winning candidate. OMITTED for elimination —
+                           // there was NO positive log match, so a delta would be a lie (not 0 = perfect).
+  note?: string;           // elimination/ambiguous premise ("no tool log claimed it; assumes human edits go through tool logs")
+  rivals?: Array<{ source: string; actor_class: "dev" | "agent"; delta_ms: number }>; // ambiguous: the losing side's candidate(s)
+}
+
+// A single file-write observed in a host log (Claude Code / Codex / Kimi / Hermes).
+// The normalized, JOIN-ready shape every host-log parser emits. absPath is already
+// canonPath()-normalized so the WriterIndex can bucket by it directly.
+export interface HostWriteRecord {
+  source: WriterEvidence["source"];
+  actor_class: "dev" | "agent";
+  absPath: string;   // canonPath()-normalized absolute path (the JOIN key)
+  tsMs: number;      // epoch ms
+  ref: string;       // <logFile>#<id|line>
 }
 
 // principal-turn contract (04.2). Written by IM entrypoints OUTSIDE this repo
@@ -177,4 +220,17 @@ export interface Config {
   log_level?: "debug" | "info" | "warn" | "error";
   log_retention_days?: number;
   processed_retention_days?: number;
+  // Phase 2.1 host-log writer attribution (all OPTIONAL with defaults; a v1 config
+  // with no such key still loads and behaves exactly as before — see loadConfig).
+  writer_index?: WriterIndexConfig;
+}
+
+export interface WriterIndexConfig {
+  enabled?: boolean;                          // default true; false ⇒ out-of-band branch behaves exactly as Phase 2 (pure bypass)
+  window_ms?: number;                         // default 90000 (±90s); the (absPath, ±window) join half-width
+  elimination?: boolean;                      // default true; false ⇒ never weak-infer agent from "landed in organ root"
+  wd_actor_map?: Record<string, "dev" | "agent">; // Kimi workDir slug prefix → actor_class override (e.g. {"wd_hermes_":"agent"})
+  // Host-log roots. Defaulted from os.homedir() at construction; override ONLY for
+  // non-standard installs. Never hardcode an absolute user path in config-less runs.
+  roots?: { claudeProjects?: string; codex?: string; kimiSessions?: string };
 }

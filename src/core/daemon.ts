@@ -7,6 +7,7 @@ import { Ledger } from "./ledger.ts";
 import { Committer } from "./committer.ts";
 import { Pipeline } from "./pipeline.ts";
 import { PrincipalIndex } from "./principal-index.ts";
+import { WriterIndex, buildWriterIndexFromConfig } from "./writer-index.ts";
 import { getLogger, type Logger } from "../onboard/logger.ts";
 import type { Config } from "../types.ts";
 
@@ -17,6 +18,7 @@ export class Daemon {
   committer: Committer;
   pipeline: Pipeline;
   principalIndex: PrincipalIndex;
+  writerIndex: WriterIndex | null;
   log: Logger;
   private lockPath: string;
   private draining = false;
@@ -35,7 +37,11 @@ export class Daemon {
     // fine — every write then degrades to unknown/local (contract-first).
     this.principalIndex = new PrincipalIndex(paths(home).principalTurns);
     this.principalIndex.refresh();
-    this.pipeline = new Pipeline(this.cfg, this.ledger, this.committer, this.principalIndex);
+    // Phase 2.1: read side of host-log writer attribution. null when disabled via
+    // config (pure bypass). Missing host-log roots degrade silently (contract-first).
+    this.writerIndex = buildWriterIndexFromConfig(this.cfg);
+    this.writerIndex?.refresh();
+    this.pipeline = new Pipeline(this.cfg, this.ledger, this.committer, this.principalIndex, this.writerIndex);
   }
 
   // acquire single-instance lock; returns false if another live daemon holds it.
