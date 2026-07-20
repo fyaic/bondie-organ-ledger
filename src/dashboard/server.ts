@@ -15,6 +15,7 @@ export interface DashboardServerOptions {
   port?: number;
   theme?: "light" | "dark";
   ledgerHome?: string;
+  quiet?: boolean; // suppress the built-in startup line (the CLI prints its own banner)
 }
 
 const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
@@ -104,7 +105,7 @@ export async function startDashboardServer(options: DashboardServerOptions = {})
     server.once("error", reject);
     server.listen(port, "127.0.0.1", () => {
       server.off("error", reject);
-      console.log(`看板已启动 -> http://localhost:${port}（只读）`);
+      if (!options.quiet) console.log(`看板已启动 -> http://localhost:${port}（只读）`);
       resolve();
     });
   });

@@ -32,7 +32,7 @@ organledger daemon
 # 3) 看审计看板（另开一个终端）—— http://localhost:7377
 #    三视图：看板 / 日志 / 文件树；看板含「来源面板」+「主使徽标」（👤IM用户·渠道认证 / 🤖agent自主 / 🖥本机未验证 / ❔未知）
 #    文件树：左键定位文件 · 右键在资源管理器/访达打开文件夹（reveal）
-organledger dashboard --open
+organledger dashboard              # 自动打开浏览器（--no-open 禁用），并打印可点击的看板地址
 
 # 4) 日常复盘 / 撤销 / 发现更多
 organledger report --date today          # 今日改了啥
@@ -270,7 +270,7 @@ organledger approve <change_id>               # held → replay commit
 organledger reject  <change_id>               # 丢弃 held
 organledger verify-ledger                     # 校验哈希链完整性
 organledger status                            # 快速摘要
-organledger dashboard [--port 7377] [--theme light|dark] [--open]  # 本地只读审计看板
+organledger dashboard [--port 7377] [--theme light|dark] [--no-open]  # 本地只读审计看板；默认自动开浏览器 + 打印可点击地址
 ```
 
 ## 审计看板（本地只读，Creme brulee 风格）

@@ -68,6 +68,35 @@ function openDashboard(url: string): void {
   child.unref();
 }
 
+// Terminals that render OSC 8 hyperlinks (cmd/ctrl-click opens the URL). Others
+// fall back to the raw URL, which most terminals still auto-linkify.
+function supportsHyperlinks(): boolean {
+  if (!process.stdout.isTTY) return false;
+  if (process.env.NO_COLOR || process.env.TERM === "dumb") return false;
+  const tp = process.env.TERM_PROGRAM || "";
+  if (["iTerm.app", "WezTerm", "vscode", "Hyper", "ghostty", "rio"].includes(tp)) return true;
+  if (process.env.KITTY_WINDOW_ID || process.env.WT_SESSION || process.env.KONSOLE_VERSION) return true;
+  return false;
+}
+
+// OSC 8 hyperlink: ESC ]8;;URL BEL  label  ESC ]8;; BEL
+function hyperlink(url: string, label: string = url): string {
+  return supportsHyperlinks() ? `]8;;${url}${label}]8;;` : label;
+}
+
+// Print the dashboard startup banner and open the browser unless opted out.
+// Default: auto-open on an interactive terminal; `--no-open` disables, `--open` forces.
+function announceDashboard(port: number, flags: Record<string, string | boolean>): void {
+  const url = `http://localhost:${port}`;
+  const wantOpen = flags["open"] === true || (!!process.stdout.isTTY && flags["no-open"] !== true);
+  console.log("");
+  console.log(`  OrganLedger 审计看板已启动（只读）`);
+  console.log(`  ▸ ${hyperlink(url)}`);
+  console.log(wantOpen ? `  正在浏览器打开… · 按 Ctrl-C 退出` : `  在浏览器打开上面的地址 · 按 Ctrl-C 退出`);
+  console.log("");
+  if (wantOpen) openDashboard(url);
+}
+
 async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
@@ -78,8 +107,8 @@ async function main(): Promise<void> {
     case "dashboard": {
       const port = Number(S(flags["port"]) || "7377") || 7377;
       const theme = S(flags["theme"]) === "dark" ? "dark" : "light";
-      await startDashboardServer({ port, theme, ledgerHome: home });
-      if (flags["open"]) openDashboard(`http://localhost:${port}`);
+      await startDashboardServer({ port, theme, ledgerHome: home, quiet: true });
+      announceDashboard(port, flags);
       return;
     }
     case "init": {
@@ -290,7 +319,7 @@ function printHelp(home: string): void {
     "  reset [--keep-audit(default) | --all --confirm]",
     "  uninstall                  stop guidance + remove autostart (keeps your data)",
     "  autostart                  install login autostart (Windows Scheduled Task)",
-    "  dashboard [--port 7377] [--theme light|dark] [--open]",
+    "  dashboard [--port 7377] [--theme light|dark] [--no-open]   # auto-opens the browser; --no-open to disable",
     "",
     "  daemon                     start consumer + OpenClaw watcher (single instance)",
     "  once                       drain inbox + flush commits, then exit",

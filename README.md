@@ -87,7 +87,7 @@ organledger init
 organledger daemon
 
 # 4) 打开审计看板
-organledger dashboard --open      # http://localhost:7377
+organledger dashboard             # 自动在浏览器打开 http://localhost:7377（--no-open 可禁用）
 ```
 
 装好后即有纵深：`init` 会把目标仓库的 **git 历史回填成变更记录**，看板首开就有内容，不是空的。
