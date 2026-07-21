@@ -111,6 +111,7 @@ export function paths(ledgerHome: string) {
     state: path.join(h, "state"),
     provenance: path.join(h, "state", "provenance.json"), // GitSource map for the dashboard (recomputable)
     heatmap: path.join(h, "state", "heatmap.json"),       // directory heat treemap for the dashboard (recomputable)
+    writerBackfill: path.join(h, "state", "writer-backfill.jsonl"), // Phase 2.1 host-log writer attribution for HISTORICAL tickets — a recomputable sidecar overlay (NOT in the hash chain); read by the dashboard/CLI, written by `backfill-writer`
     inbox: path.join(h, "state", "events", "inbox.jsonl"),
     processed: path.join(h, "state", "events", "processed"),
     lock: path.join(h, "state", "daemon.lock"),

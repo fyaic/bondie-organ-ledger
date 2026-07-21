@@ -165,6 +165,8 @@ export interface WriterEvidence {
                            // there was NO positive log match, so a delta would be a lie (not 0 = perfect).
   note?: string;           // elimination/ambiguous premise ("no tool log claimed it; assumes human edits go through tool logs")
   rivals?: Array<{ source: string; actor_class: "dev" | "agent"; delta_ms: number }>; // ambiguous: the losing side's candidate(s)
+  backfilled?: boolean;    // true ⇒ computed AFTER the fact by `backfill-writer` over history (a recomputable
+                           // sidecar overlay, NOT part of the hash-chained ticket) — even weaker than a live match.
 }
 
 // A single file-write observed in a host log (Claude Code / Codex / Kimi / Hermes).

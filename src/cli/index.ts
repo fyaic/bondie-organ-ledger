@@ -14,6 +14,7 @@ import { approve, reject } from "./approve.ts";
 import { Ledger } from "../core/ledger.ts";
 import { runInit } from "../onboard/init.ts";
 import { backfillFromGitHistory, backfillReflog } from "../onboard/backfill.ts";
+import { backfillWriterAttribution } from "../onboard/backfill-writer.ts";
 import { runDoctor } from "../onboard/doctor.ts";
 import { buildProvenanceReport, writeProvenanceReport, formatProvenanceTable } from "../onboard/provenance.ts";
 import { buildHeatmap, writeHeatmapReport, formatHeatmapSummary } from "../onboard/heatmap.ts";
@@ -215,6 +216,32 @@ async function main(): Promise<void> {
       const v = new Ledger(cfg.ledger_home).verify();
       console.log(`  tickets ${before} → ${ledger.all().length}; chain: ${v.ok ? "intact ✓" : "BROKEN@" + v.brokenIndex}`);
       process.exit(v.ok ? 0 : 1);
+    }
+    case "backfill-writer": {
+      // Phase 2.1: retroactively attribute the WRITER of historical out-of-band
+      // tickets from local host logs, into a RECOMPUTABLE SIDECAR overlay
+      // (state/writer-backfill.jsonl). READ-ONLY over the ledger — the hash chain is
+      // NEVER touched (a sealed ticket's attribution is inside its signed bytes), so
+      // this is safe while the daemon is up and needs no guardSingleWriter.
+      const r = backfillWriterAttribution(cfg);
+      console.log(`OrganLedger backfill-writer — 历史写入归因（旁挂 · 全部弱证据 path+time·非证明）`);
+      console.log(`  host 日志写记录: ${r.indexed}  ·  时间窗 ±${Math.round(r.windowMs / 1000)}s`);
+      if (r.skippedGitBackfill) {
+        console.log(`  ⏭  跳过 git 回填票: ${r.skippedGitBackfill}  ← created_at 是「提交时间」非「写入时刻」，`);
+        console.log(`      path+time 归因对它们无意义（会把几乎所有改动误判成 elimination/"agent自主"）。`);
+      }
+      console.log(`  可归因的实时捕获票 scanned: ${r.scanned}  ·  已归因 refined: ${r.refined}`);
+      const b = r.byMatch;
+      console.log(`    🧑‍💻 本机·开发 dev-log         : ${b["dev-log"] ?? 0}`);
+      console.log(`    🤖 agent·自主 agent-log        : ${b["agent-log"] ?? 0}`);
+      console.log(`    🤖 agent·自主 排除法 elimination : ${b["elimination"] ?? 0}`);
+      console.log(`    ⚠ 多源争用 ambiguous(不判定)   : ${b["ambiguous"] ?? 0}`);
+      if (r.scanned === 0) {
+        console.log(`\n  ⚠ 没有可归因的实时捕获票 —— 本账本历史几乎全是 git 回填。`);
+        console.log(`     日志归因只对「daemon 实时捕获」的写入有效（那种票记录了真实写入时刻）。`);
+      }
+      console.log(`\n[written] ${r.sidecar}  ← 看板/attribution --stats 读取时叠加（账本字节未动）`);
+      return;
     }
     case "provenance": {
       // READ-ONLY: scans each target's GitSources and writes state/provenance.json

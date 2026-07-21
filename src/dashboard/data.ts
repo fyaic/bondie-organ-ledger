@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { Attribution, Op, OrganSystem, Provenance, Severity, Status, Ticket } from "../types.ts";
 import { defaultLedgerHome, localDay, paths, readJsonl } from "../util.ts";
+import { loadWriterBackfill, type WriterBackfillRow } from "../onboard/backfill-writer.ts";
 
 export type BoardDateFilter = "today" | "recent" | "all" | string;
 const RECENT_DAYS = 7;
@@ -70,6 +71,25 @@ const STATUSES: Status[] = ["held", "observed", "approved", "rejected", "rolled_
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
 const SYSTEMS: OrganSystem[] = ["openclaw", "hermes"];
 
+// Read-time overlay of the writer-backfill sidecar (recomputable; NOT in the hash
+// chain). Applies ONLY to cards the live daemon left unrefined (match none/undefined) —
+// a live match always wins over a backfilled one. Mutates the card's attribution COPY
+// (never the ledger). Backfilled evidence carries backfilled:true so the UI marks it.
+function applyWriterBackfill(card: DashboardCard, backfill: Map<string, WriterBackfillRow>): DashboardCard {
+  const live = card.attribution?.match;
+  if (live && live !== "none") return card; // live refinement wins; leave as-is
+  const row = backfill.get(card.change_id);
+  if (!row) return card;
+  const base: Attribution = card.attribution ?? {
+    writer: "local",
+    principal: { kind: "unknown", channel: null, id: null, display: null, verified: false, attestation: "unverified" },
+    autonomy: "unknown", turn_id: null, match: "none",
+  };
+  // writer axis only — principal is NOT asserted by a path+time backfill (stays as-is).
+  card.attribution = { ...base, writer: row.writer, match: row.match, local_writer: row.local_writer ?? base.local_writer, writer_evidence: row.evidence };
+  return card;
+}
+
 export function loadBoard(filters: BoardFilters = {}, ledgerHome = defaultLedgerHome()): BoardResponse {
   const p = paths(ledgerHome);
   const tickets = readJsonl<Ticket>(p.tickets);
@@ -85,8 +105,10 @@ export function loadBoard(filters: BoardFilters = {}, ledgerHome = defaultLedger
   // recent MATCHING tickets. (A backfilled ledger's file order isn't chronological,
   // so .slice(-500) on raw order could drop the newest tickets and leave the default
   // "recent" KPI empty even when recent data exists.)
+  const backfill = loadWriterBackfill(ledgerHome);
   const cards = Array.from(byId.values())
     .map(toCard)
+    .map((card) => applyWriterBackfill(card, backfill))
     .filter((card) => matchesFilters(card, filters))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .slice(0, 500);
@@ -120,9 +142,11 @@ export function buildAttributionStats(
   filters: BoardFilters = {}
 ): AttributionStats {
   const p = paths(ledgerHome);
+  const backfill = loadWriterBackfill(ledgerHome);
   const cards = readJsonl<Ticket>(p.tickets)
     .filter((t) => t?.change_id)
     .map(toCard)
+    .map((card) => applyWriterBackfill(card, backfill))
     .filter((card) => matchesFilters(card, filters));
 
   const byKind: Record<BoardPrincipalFilter, number> = { "all": 0, "im-user": 0, autonomous: 0, local: 0, unknown: 0 };
